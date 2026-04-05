@@ -1,0 +1,10 @@
+# Release 서명 설정
+# 이 파일을 key.properties로 복사한 후 실제 값을 입력하세요.
+#
+# keystore 생성:
+#   keytool -genkey -v -keystore workcheck-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias workcheck
+#
+storeFile=workcheck-release.jks
+storePassword=your_store_password
+keyAlias=workcheck
+keyPassword=your_key_password

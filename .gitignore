@@ -1,0 +1,46 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Flutter
+**/build/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/.pub-cache/
+**/.pub/
+**/pubspec.lock
+
+# iOS
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+
+# Android
+**/android/.gradle/
+**/android/local.properties
+**/android/key.properties
+
+# Kotlin/Gradle
+workCheck_backend/.gradle/
+workCheck_backend/build/
+workCheck_backend/out/
+
+# Docker
+*.log
+
+# Env
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/cache/
+thoughts/

@@ -1,0 +1,39 @@
+{
+  "units": [
+    {
+      "name": "handle_new_rx_page",
+      "qualified_name": "attendance_app.ios.Flutter.ephemeral.flutter_lldb_helper.py.handle_new_rx_page",
+      "file": "attendance_app/ios/Flutter/ephemeral/flutter_lldb_helper.py",
+      "line": 7,
+      "language": "python",
+      "unit_type": "function",
+      "signature": "def handle_new_rx_page(frame: lldb.SBFrame, bp_loc, extra_args, intern_dict)",
+      "docstring": "Intercept NOTIFY_DEBUGGER_ABOUT_RX_PAGES and touch the pages.",
+      "calls": [],
+      "called_by": [],
+      "cfg_summary": "complexity:2, blocks:4",
+      "dfg_summary": "vars:11, def-use chains:11",
+      "dependencies": "lldb",
+      "code_preview": "def handle_new_rx_page(frame: lldb.SBFrame, bp_loc, extra_args, intern_dict):\n    \"\"\"Intercept NOTIFY_DEBUGGER_ABOUT_RX_PAGES and touch the pages.\"\"\"\n    base = frame.register[\"x0\"].GetValueAsAddress()\n    page_len = frame.register[\"x1\"].GetValueAsUnsigned()\n\n    # Note: NOTIFY_DEBUGGER_ABOUT_RX_PAGES will check contents of the\n    # first page to see if handled it correctly. This makes diagnosing\n    # misconfiguration (e.g. missing breakpoint) easier.\n    data = bytearray(page_len)\n    data[0:8] = b'IHELPED!'"
+    },
+    {
+      "name": "__lldb_init_module",
+      "qualified_name": "attendance_app.ios.Flutter.ephemeral.flutter_lldb_helper.py.__lldb_init_module",
+      "file": "attendance_app/ios/Flutter/ephemeral/flutter_lldb_helper.py",
+      "line": 24,
+      "language": "python",
+      "unit_type": "function",
+      "signature": "def __lldb_init_module(debugger: lldb.SBDebugger, _)",
+      "docstring": "",
+      "calls": [],
+      "called_by": [],
+      "cfg_summary": "complexity:1, blocks:1",
+      "dfg_summary": "vars:6, def-use chains:0",
+      "dependencies": "lldb",
+      "code_preview": "def __lldb_init_module(debugger: lldb.SBDebugger, _):\n    target = debugger.GetDummyTarget()\n    # Caveat: must use BreakpointCreateByRegEx here and not\n    # BreakpointCreateByName. For some reasons callback function does not\n    # get carried over from dummy target for the later.\n    bp = target.BreakpointCreateByRegex(\"^NOTIFY_DEBUGGER_ABOUT_RX_PAGES$\")\n    bp.SetScriptCallbackFunction('{}.handle_new_rx_page'.format(__name__))\n    bp.SetAutoContinue(True)"
+    }
+  ],
+  "model": "BAAI/bge-large-en-v1.5",
+  "dimension": 1024,
+  "count": 2
+}

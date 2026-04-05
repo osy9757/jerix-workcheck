@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: workcheck-db
+    environment:
+      POSTGRES_DB: workcheck
+      POSTGRES_USER: workcheck
+      POSTGRES_PASSWORD: workcheck_dev
+    ports:
+      - "${DB_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./src/main/resources/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: workcheck-api
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/workcheck
+      SPRING_DATASOURCE_USERNAME: workcheck
+      SPRING_DATASOURCE_PASSWORD: workcheck_dev
+      SPRING_JPA_HIBERNATE_DDL_AUTO: validate
+      JWT_SECRET: workcheck-mvp-jwt-secret-key-for-development-only
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

@@ -1,0 +1,97 @@
+name: attendance_app
+description: 출퇴근 등록 서비스 앱
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_bloc: ^8.1.6
+  bloc: ^8.1.4
+
+  # DI
+  get_it: ^8.0.2
+  injectable: ^2.5.0
+
+  # Network
+  dio: ^5.7.0
+  retrofit: ">=4.4.1 <4.9.0"
+
+  # Local Storage
+  shared_preferences: ^2.3.4
+
+  # Routing
+  go_router: ^14.6.2
+
+  # Data Classes
+  equatable: ^2.0.7
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+
+  # Functional
+  dartz: ^0.10.1
+
+  # UI
+  flutter_svg: ^2.0.10+1
+
+  # Utils
+  logger: ^2.5.0
+  intl: ^0.19.0
+  flutter_screenutil: ^5.9.3
+  permission_handler: ^11.3.1
+
+  # Verification Methods
+  geolocator: ^13.0.2        # GPS
+  mobile_scanner: ^6.0.2      # QR Code
+  nfc_manager: ^4.1.0         # NFC
+  flutter_blue_plus: ^1.35.3   # Bluetooth (Android BLE)
+  dchs_flutter_beacon: ^0.6.2  # iBeacon (iOS CoreLocation + Android)
+  network_info_plus: ^6.1.1    # WiFi SSID/BSSID
+  lottie: ^3.3.2
+  kakao_map_sdk: ^1.2.4
+  geocoding: ^4.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  build_runner: ^2.4.13
+  freezed: ^2.5.7
+  json_serializable: ^6.8.0
+  injectable_generator: ^2.7.0
+  retrofit_generator: ^9.1.5
+  bloc_test: ^9.1.7
+  mocktail: ^1.0.4
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/lottie/
+  fonts:
+    - family: Pretendard
+      fonts:
+        - asset: assets/fonts/Pretendard-Thin.ttf
+          weight: 100
+        - asset: assets/fonts/Pretendard-ExtraLight.ttf
+          weight: 200
+        - asset: assets/fonts/Pretendard-Light.ttf
+          weight: 300
+        - asset: assets/fonts/Pretendard-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Pretendard-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Pretendard-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Pretendard-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Pretendard-ExtraBold.ttf
+          weight: 800
+        - asset: assets/fonts/Pretendard-Black.ttf
+          weight: 900

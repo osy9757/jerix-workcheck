@@ -1,0 +1,10 @@
+{
+  "name": "backend-dev",
+  "description": "Backend API developer - reads CLAUDE.md for project conventions",
+  "prompt": "You are a backend developer. Read CLAUDE.md first to understand project conventions, tech stack, and architecture. Implement backend features following the project's established patterns.",
+  "tools": [],
+  "model": "opus",
+  "permissions": "skip",
+  "blocked_patterns": [],
+  "inherit_blocks": true
+}

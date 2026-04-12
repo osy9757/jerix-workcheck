@@ -683,39 +683,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     // 활성화된 단일 방법 집합 (복합 인증에 포함된 것도 포함)
     final enabledSingle = <VerificationMethod>{};
     for (final m in methods) {
-      if (m.isComposite) {
-        // 복합 인증의 구성 요소 추가
-        switch (m) {
-          case VerificationMethod.gpsQr:
-            enabledSingle.addAll([
-              VerificationMethod.gps,
-              VerificationMethod.qr,
-            ]);
-            break;
-          case VerificationMethod.wifiQr:
-            enabledSingle.addAll([
-              VerificationMethod.wifi,
-              VerificationMethod.qr,
-            ]);
-            break;
-          case VerificationMethod.nfcGps:
-            enabledSingle.addAll([
-              VerificationMethod.nfc,
-              VerificationMethod.gps,
-            ]);
-            break;
-          case VerificationMethod.beaconGps:
-            enabledSingle.addAll([
-              VerificationMethod.bluetooth,
-              VerificationMethod.gps,
-            ]);
-            break;
-          default:
-            break;
-        }
-      } else {
-        enabledSingle.add(m);
-      }
+      // components: 복합이면 구성 요소, 단일이면 자기 자신
+      enabledSingle.addAll(m.components);
     }
 
     return Row(

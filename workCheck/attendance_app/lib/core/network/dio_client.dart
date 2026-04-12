@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:injectable/injectable.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -88,19 +89,19 @@ class _AuthInterceptor extends Interceptor {
 class _LogInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    print('[API] ${options.method} ${options.uri}');
+    debugPrint('[API] ${options.method} ${options.uri}');
     handler.next(options);
   }
 
   @override
   void onResponse(Response response, ResponseInterceptorHandler handler) {
-    print('[API] ${response.statusCode} ${response.requestOptions.uri}');
+    debugPrint('[API] ${response.statusCode} ${response.requestOptions.uri}');
     handler.next(response);
   }
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    print('[API] ERROR ${err.response?.statusCode} ${err.requestOptions.uri}');
+    debugPrint('[API] ERROR ${err.response?.statusCode} ${err.requestOptions.uri}');
     handler.next(err);
   }
 }

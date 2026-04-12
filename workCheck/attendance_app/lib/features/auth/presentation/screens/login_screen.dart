@@ -42,7 +42,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   bool _showKeypad = false;
 
   final FocusNode _passwordFocusNode = FocusNode();
-  final AuthLocalDatasource _authLocal = AuthLocalDatasource();
+  final AuthLocalDatasource _authLocal = getIt<AuthLocalDatasource>();
 
   /// 비밀번호 필드 오류 메시지
   String? _passwordError;
@@ -186,7 +186,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       if (!mounted) return;
 
       final statusCode = e.response?.statusCode;
-      final message = e.response?.data?['message'] as String?;
+      final message = e.response?.data?['error'] as String?;
 
       if (statusCode == 403) {
         // 기기 접속 불가: 접속 허용 요청 안내 다이얼로그 표시

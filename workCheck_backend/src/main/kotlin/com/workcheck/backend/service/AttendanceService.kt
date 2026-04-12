@@ -32,65 +32,58 @@ class AttendanceService(
     // 출근 등록
     @Transactional
     fun clockIn(userId: Long, request: ClockInRequest): AttendanceResponse {
-        // 출근 요청 시 인증 데이터 로깅
-        logger.info("[Attendance] CLOCK_IN userId: $userId, method: ${request.verificationMethod}, verification_data: ${request.verificationData}")
-
-        val user = userRepository.findById(userId)
-            .orElseThrow { IllegalArgumentException("사용자를 찾을 수 없습니다") }
-
-        // 오늘 이미 출근했는지 확인
-        val (startOfDay, endOfDay) = todayRange()
-        val existing = attendanceRecordRepository.findFirstByUserIdAndTypeAndRecordedAtBetweenOrderByRecordedAtDesc(
-            userId, AttendanceType.CLOCK_IN, startOfDay, endOfDay
-        )
-        if (existing != null) {
-            throw IllegalArgumentException("오늘 이미 출근 등록되었습니다")
-        }
-
-        // 인증 검증 (유저 기반: 근무지 기본 + 오버라이드 반영)
-        val verifiedMethod = verificationService.verify(
-            userId, request.verificationMethod, request.verificationData
-        )
-
-        val record = AttendanceRecord(
-            user = user,
+        return registerAttendance(
+            userId = userId,
             type = AttendanceType.CLOCK_IN,
-            verificationMethod = verifiedMethod,
-            verificationData = request.verificationData,
-            recordedAt = OffsetDateTime.now()
+            verificationMethod = request.verificationMethod,
+            verificationData = request.verificationData
         )
-        val saved = attendanceRecordRepository.save(record)
-        return toResponse(saved)
     }
 
     // 퇴근 등록
     @Transactional
     fun clockOut(userId: Long, request: ClockOutRequest): AttendanceResponse {
-        // 퇴근 요청 시 인증 데이터 로깅
-        logger.info("[Attendance] CLOCK_OUT userId: $userId, method: ${request.verificationMethod}, verification_data: ${request.verificationData}")
+        return registerAttendance(
+            userId = userId,
+            type = AttendanceType.CLOCK_OUT,
+            verificationMethod = request.verificationMethod,
+            verificationData = request.verificationData
+        )
+    }
+
+    // 출퇴근 공통 등록 로직
+    private fun registerAttendance(
+        userId: Long,
+        type: AttendanceType,
+        verificationMethod: String,
+        verificationData: Map<String, Any>
+    ): AttendanceResponse {
+        val typeLabel = if (type == AttendanceType.CLOCK_IN) "출근" else "퇴근"
+
+        logger.info("[Attendance] ${type.name} userId: $userId, method: $verificationMethod, verification_data: $verificationData")
 
         val user = userRepository.findById(userId)
             .orElseThrow { IllegalArgumentException("사용자를 찾을 수 없습니다") }
 
-        // 오늘 이미 퇴근했는지 확인
+        // 오늘 이미 등록했는지 확인
         val (startOfDay, endOfDay) = todayRange()
         val existing = attendanceRecordRepository.findFirstByUserIdAndTypeAndRecordedAtBetweenOrderByRecordedAtDesc(
-            userId, AttendanceType.CLOCK_OUT, startOfDay, endOfDay
+            userId, type, startOfDay, endOfDay
         )
         if (existing != null) {
-            throw IllegalArgumentException("오늘 이미 퇴근 등록되었습니다")
+            throw IllegalArgumentException("오늘 이미 ${typeLabel} 등록되었습니다")
         }
 
         // 인증 검증 (유저 기반: 근무지 기본 + 오버라이드 반영)
         val verifiedMethod = verificationService.verify(
-            userId, request.verificationMethod, request.verificationData
+            userId, verificationMethod, verificationData
         )
 
         val record = AttendanceRecord(
             user = user,
-            type = AttendanceType.CLOCK_OUT,
+            type = type,
             verificationMethod = verifiedMethod,
-            verificationData = request.verificationData,
+            verificationData = verificationData,
             recordedAt = OffsetDateTime.now()
         )
         val saved = attendanceRecordRepository.save(record)

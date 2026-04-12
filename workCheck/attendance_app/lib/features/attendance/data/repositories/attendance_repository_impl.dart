@@ -39,7 +39,7 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
     } on DioException catch (e) {
       final data = e.response?.data;
       return Left(ServerFailure(
-        message: data?['message'] ?? '서버 오류가 발생했습니다.',
+        message: data?['error'] ?? '서버 오류가 발생했습니다.',
         statusCode: e.response?.statusCode,
         errorCode: data?['errorCode'] as String?,
       ));
@@ -58,7 +58,7 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
       ));
     } on DioException catch (e) {
       return Left(ServerFailure(
-        message: e.response?.data?['message'] ?? '서버 오류가 발생했습니다.',
+        message: e.response?.data?['error'] ?? '서버 오류가 발생했습니다.',
         statusCode: e.response?.statusCode,
       ));
     } catch (e) {
@@ -76,7 +76,7 @@ class AttendanceRepositoryImpl implements AttendanceRepository {
       return Right(model.toEntity());
     } on DioException catch (e) {
       return Left(ServerFailure(
-        message: e.response?.data?['message'] ?? '서버 오류가 발생했습니다.',
+        message: e.response?.data?['error'] ?? '서버 오류가 발생했습니다.',
         statusCode: e.response?.statusCode,
       ));
     } catch (e) {

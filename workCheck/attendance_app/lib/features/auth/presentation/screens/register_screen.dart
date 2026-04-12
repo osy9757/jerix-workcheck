@@ -128,7 +128,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       context.pop();
     } on DioException catch (e) {
       if (!mounted) return;
-      final message = e.response?.data?['message'] as String?
+      final message = e.response?.data?['error'] as String?
           ?? '회원가입에 실패했습니다.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),

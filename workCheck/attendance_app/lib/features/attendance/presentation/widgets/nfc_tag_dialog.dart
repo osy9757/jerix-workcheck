@@ -1,18 +1,10 @@
-import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:lottie/lottie.dart';
 import 'package:nfc_manager/nfc_manager.dart';
-// iOS 전용 태그 클래스
-import 'package:nfc_manager/src/nfc_manager_ios/tags/mifare.dart';
-import 'package:nfc_manager/src/nfc_manager_ios/tags/iso7816.dart';
-import 'package:nfc_manager/src/nfc_manager_ios/tags/iso15693.dart';
-import 'package:nfc_manager/src/nfc_manager_ios/tags/felica.dart';
-// Android 전용 태그 클래스
-import 'package:nfc_manager/src/nfc_manager_android/tags/tag.dart';
+
+import '../../../../core/utils/nfc_tag_helper.dart';
 
 /// NFC 태그 대기 다이얼로그
 ///
@@ -71,54 +63,13 @@ class _NfcTagDialogState extends State<NfcTagDialog> {
           try {
             debugPrint('[NFC] 태그 발견');
 
-            // 플랫폼별 태그 identifier 추출
-            Uint8List? identifier;
-            String tagType = 'unknown';
+            // 플랫폼별 태그 identifier 추출 (nfc_tag_helper에 격리)
+            final tagInfo = extractTagInfo(tag);
+            debugPrint('[NFC] tagType: ${tagInfo.tagType}');
 
-            if (Platform.isIOS) {
-              // iOS: typed 클래스에서 identifier 추출
-              final mifare = MiFareIos.from(tag);
-              if (mifare != null) {
-                identifier = mifare.identifier;
-                tagType = 'mifare';
-              }
-              if (identifier == null) {
-                final iso7816 = Iso7816Ios.from(tag);
-                if (iso7816 != null) {
-                  identifier = iso7816.identifier;
-                  tagType = 'iso7816';
-                }
-              }
-              if (identifier == null) {
-                final iso15693 = Iso15693Ios.from(tag);
-                if (iso15693 != null) {
-                  identifier = iso15693.identifier;
-                  tagType = 'iso15693';
-                }
-              }
-              if (identifier == null) {
-                final felica = FeliCaIos.from(tag);
-                if (felica != null) {
-                  tagType = 'felica';
-                }
-              }
-            } else if (Platform.isAndroid) {
-              // Android: NfcTagAndroid에서 id 추출
-              final androidTag = NfcTagAndroid.from(tag);
-              if (androidTag != null) {
-                identifier = androidTag.id;
-                tagType = 'android(${androidTag.techList.join(",")})';
-              }
-            }
-
-            debugPrint('[NFC] tagType: $tagType');
-
-            String tagId;
-            if (identifier != null && identifier.isNotEmpty) {
-              tagId = identifier.map((e) => e.toRadixString(16).padLeft(2, '0')).join(':');
-            } else {
+            final tagId = tagInfo.uid;
+            if (tagId == 'unknown') {
               debugPrint('[NFC] identifier가 null이거나 비어있음');
-              tagId = 'unknown';
             }
 
             debugPrint('[NFC] Tag UID: ${tagId.toUpperCase()}');

@@ -8,8 +8,13 @@ import '../../../../core/di/injection.dart';
 import '../../../../presentation/common_widgets/app_text_field.dart';
 import '../../../../presentation/common_widgets/secure_number_pad.dart';
 
+/// 보안 키패드에서 현재 활성화된 입력 필드를 구분하는 enum
 enum _ActiveField { none, password, confirm }
 
+/// 회원가입 화면
+///
+/// 회사코드, 사원번호, 비밀번호를 입력하여 신규 사용자를 등록.
+/// 비밀번호는 보안 숫자 키패드를 사용하며, 비밀번호 확인 필드로 일치 여부를 검증.
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
 
@@ -25,18 +30,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passwordFocusNode = FocusNode();
   final _confirmFocusNode = FocusNode();
 
+  /// 현재 활성 키패드 대상 필드
   _ActiveField _activeField = _ActiveField.none;
   String? _companyCodeError;
   String? _employeeIdError;
   String? _confirmError;
   bool _isLoading = false;
 
+  /// 모든 필드가 입력되었는지 확인하여 확인 버튼 활성화 여부 결정
   bool get _isFormValid =>
       _companyCodeController.text.isNotEmpty &&
       _employeeIdController.text.isNotEmpty &&
       _passwordController.text.isNotEmpty &&
       _confirmController.text.isNotEmpty;
 
+  /// 현재 활성 필드에 해당하는 TextEditingController 반환
   TextEditingController get _activeController {
     switch (_activeField) {
       case _ActiveField.password:
@@ -48,6 +56,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  /// 보안 키패드 숫자 입력 처리
   void _onKeypadInput(String digit) {
     final controller = _activeController;
     controller.text += digit;
@@ -57,6 +66,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() {});
   }
 
+  /// 보안 키패드 백스페이스 처리
   void _onKeypadBackspace() {
     final controller = _activeController;
     if (controller.text.isNotEmpty) {
@@ -71,6 +81,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() {});
   }
 
+  /// 보안 키패드 숨기기
   void _hideKeypad() {
     if (_activeField != _ActiveField.none) {
       setState(() {
@@ -81,6 +92,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  /// 회원가입 처리
+  ///
+  /// 입력값 검증 후 서버에 회원가입 API를 호출.
+  /// 성공 시 스낵바로 알림 후 이전 화면으로 복귀.
   Future<void> _handleRegister() async {
     setState(() {
       _companyCodeError = null;
@@ -128,7 +143,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       context.pop();
     } on DioException catch (e) {
       if (!mounted) return;
-      final message = e.response?.data?['message'] as String?
+      final message = e.response?.data?['error'] as String?
           ?? '회원가입에 실패했습니다.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
@@ -149,6 +164,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
+  /// 입력 필드 상단 레이블 위젯
   Widget _buildLabel(String text) {
     return Align(
       alignment: Alignment.centerLeft,

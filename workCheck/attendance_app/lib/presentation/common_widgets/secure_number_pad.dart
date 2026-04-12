@@ -47,20 +47,14 @@ class _SecureNumberPadState extends State<SecureNumberPad> {
       ..shuffle();
   }
 
-  /// 숫자 키 클릭 처리 (콜백 호출 후 키패드 재섞기)
+  /// 숫자 키 클릭 처리
   void _onNumberTap(int number) {
     widget.onKeyPressed('$number');
-    setState(() {
-      _shuffleKeypad();
-    });
   }
 
-  /// 백스페이스 클릭 처리 (콜백 호출 후 키패드 재섞기)
+  /// 백스페이스 클릭 처리
   void _onBackspaceTap() {
     widget.onBackspace();
-    setState(() {
-      _shuffleKeypad();
-    });
   }
 
   @override

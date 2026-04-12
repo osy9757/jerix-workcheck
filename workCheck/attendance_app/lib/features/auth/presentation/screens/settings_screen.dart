@@ -109,6 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// 설정 섹션 제목 텍스트
   Widget _buildSectionTitle(String title) {
     return Text(
       title,
@@ -123,6 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// 서버 URL 입력 및 저장 카드
   Widget _buildServerUrlCard() {
     return Container(
       padding: EdgeInsets.all(16.w),
@@ -204,6 +206,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// 로그아웃 버튼 카드
   Widget _buildLogoutCard() {
     return GestureDetector(
       onTap: _handleLogout,
@@ -232,6 +235,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// 앱 버전 정보 표시 카드
   Widget _buildInfoCard() {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),

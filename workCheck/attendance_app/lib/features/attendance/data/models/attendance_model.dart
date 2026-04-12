@@ -38,7 +38,8 @@ class AttendanceModel with _$AttendanceModel {
         id: id,
         // CLOCK_IN이면 clockIn, 나머지는 clockOut으로 매핑
         type: type == 'CLOCK_IN' ? AttendanceType.clockIn : AttendanceType.clockOut,
-        timestamp: DateTime.parse(timestamp),
+        // 서버가 UTC(Z 접미사)로 반환하므로 로컬 시간대로 변환
+        timestamp: DateTime.parse(timestamp).toLocal(),
         verificationMethod: VerificationMethod.values.firstWhere(
           (m) => m.name == verificationMethod,
           // 알 수 없는 방식은 GPS로 폴백

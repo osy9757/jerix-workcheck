@@ -20,6 +20,10 @@ import '../widgets/gps_spoofing_dialog.dart';
 import '../widgets/nfc_check_fail_dialog.dart';
 import '../widgets/wifi_unavailable_dialog.dart';
 
+/// 출퇴근 메인 화면
+///
+/// 현재 시간, 출근지/현위치 정보, 지도, 출퇴근 버튼을 표시.
+/// BLoC을 통해 출퇴근 상태를 관리하며 인증 결과에 따라 다이얼로그를 분기.
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
 
@@ -296,10 +300,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         id: 'current_location',
       );
 
+      // 마커 아이콘(40px * pixelRatio 2.0 = 80px)이 잘리지 않도록 패딩 확보
+      // 지도 높이(230.h)에서 상하 마커가 모두 보이려면 충분한 여유 필요
       await controller.moveCamera(
         CameraUpdate.fitMapPoints(
           [destination, currentLocation],
-          padding: 80,
+          padding: 120,
         ),
       );
 
@@ -453,6 +459,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
+  /// 사용자 인사말 + 히스토리 이동 버튼
   Widget _buildGreeting() {
     final displayName = _userName.isNotEmpty ? _userName : '사용자';
     return GestureDetector(
@@ -486,6 +493,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// 출퇴근 카드 (날짜, 시간, 출근지/현위치, 출퇴근 버튼 포함)
   Widget _buildAttendanceCard({
     required AttendanceState state,
     required bool isClockedIn,
@@ -683,39 +691,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     // 활성화된 단일 방법 집합 (복합 인증에 포함된 것도 포함)
     final enabledSingle = <VerificationMethod>{};
     for (final m in methods) {
-      if (m.isComposite) {
-        // 복합 인증의 구성 요소 추가
-        switch (m) {
-          case VerificationMethod.gpsQr:
-            enabledSingle.addAll([
-              VerificationMethod.gps,
-              VerificationMethod.qr,
-            ]);
-            break;
-          case VerificationMethod.wifiQr:
-            enabledSingle.addAll([
-              VerificationMethod.wifi,
-              VerificationMethod.qr,
-            ]);
-            break;
-          case VerificationMethod.nfcGps:
-            enabledSingle.addAll([
-              VerificationMethod.nfc,
-              VerificationMethod.gps,
-            ]);
-            break;
-          case VerificationMethod.beaconGps:
-            enabledSingle.addAll([
-              VerificationMethod.bluetooth,
-              VerificationMethod.gps,
-            ]);
-            break;
-          default:
-            break;
-        }
-      } else {
-        enabledSingle.add(m);
-      }
+      // components: 복합이면 구성 요소, 단일이면 자기 자신
+      enabledSingle.addAll(m.components);
     }
 
     return Row(
@@ -735,6 +712,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// 오늘 출퇴근 시간 요약 카드
   Widget _buildStatusCard({
     DateTime? clockInTime,
     DateTime? clockOutTime,
@@ -761,6 +739,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// 출근/퇴근 시간 표시 컬럼 (날짜 + 시간)
   Widget _buildStatusColumn(String title, DateTime? time) {
     return Expanded(
       child: Column(
@@ -808,6 +787,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// 카카오맵 섹션 (출근지 + 현위치 마커, GPS 반경 원)
   Widget _buildMapSection() {
     return Center(
       child: Container(

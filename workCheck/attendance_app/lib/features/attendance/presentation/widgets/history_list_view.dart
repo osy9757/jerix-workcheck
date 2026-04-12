@@ -6,6 +6,9 @@ import '../../domain/entities/history_entity.dart';
 import 'history_day_row.dart';
 
 /// 리스트 형태의 히스토리 뷰
+///
+/// 해당 월의 모든 날짜를 세로 리스트로 표시하며,
+/// 각 날짜별 출퇴근 시간과 총 근무시간을 [HistoryDayRow]로 렌더링.
 class HistoryListView extends StatelessWidget {
   const HistoryListView({
     super.key,
@@ -13,16 +16,19 @@ class HistoryListView extends StatelessWidget {
     required this.records,
   });
 
+  /// 현재 표시 중인 월
   final DateTime currentMonth;
+
+  /// 일별 출퇴근 기록 (day -> record)
   final Map<int, DailyRecordEntity> records;
 
-  /// DateTime → HH:mm 포맷 변환
+  /// DateTime을 HH:mm 형식 문자열로 변환 (null이면 null 반환)
   String? _formatTime(DateTime? time) {
     if (time == null) return null;
     return DateFormat('HH:mm').format(time);
   }
 
-  /// 출퇴근 시간으로 근무시간 계산
+  /// 출퇴근 시간 차이로 총 근무시간을 'XX시간 YY분' 형식으로 계산
   String? _calculateTotalHours(DateTime? clockIn, DateTime? clockOut) {
     if (clockIn == null || clockOut == null) return null;
     final diff = clockOut.difference(clockIn);

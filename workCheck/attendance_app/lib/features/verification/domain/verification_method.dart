@@ -22,6 +22,15 @@ enum VerificationMethod {
   /// 복합 인증 여부
   bool get isComposite => [gpsQr, wifiQr, nfcGps, beaconGps].contains(this);
 
+  /// 복합 인증의 구성 요소 반환 (단일 인증은 자기 자신을 반환)
+  List<VerificationMethod> get components => switch (this) {
+        gpsQr => [gps, qr],
+        wifiQr => [wifi, qr],
+        nfcGps => [nfc, gps],
+        beaconGps => [bluetooth, gps],
+        _ => [this],
+      };
+
   /// 백엔드 API 이름 → enum 변환
   static VerificationMethod? fromApiName(String name) {
     return switch (name.toLowerCase()) {

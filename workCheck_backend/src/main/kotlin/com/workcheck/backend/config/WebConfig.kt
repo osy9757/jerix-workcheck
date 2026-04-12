@@ -5,6 +5,7 @@ import org.springframework.web.servlet.config.annotation.CorsRegistry
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 
+// 웹 MVC 설정 - CORS 정책과 JWT 인터셉터 등록을 관리
 @Configuration
 class WebConfig(
     private val jwtAuthInterceptor: JwtAuthInterceptor

@@ -26,33 +26,11 @@ class VerificationManager {
           VerificationMethod.wifi: wifi,
         };
 
-  /// 복합 인증 방법 → 구성 요소 매핑
-  static const Map<VerificationMethod, List<VerificationMethod>>
-      _compositeMap = {
-    VerificationMethod.gpsQr: [
-      VerificationMethod.gps,
-      VerificationMethod.qr,
-    ],
-    VerificationMethod.wifiQr: [
-      VerificationMethod.wifi,
-      VerificationMethod.qr,
-    ],
-    VerificationMethod.nfcGps: [
-      VerificationMethod.nfc,
-      VerificationMethod.gps,
-    ],
-    VerificationMethod.beaconGps: [
-      VerificationMethod.bluetooth,
-      VerificationMethod.gps,
-    ],
-  };
-
   /// 인증 실행 (단일 + 복합 모두 지원)
   Future<VerificationResult> verify(VerificationMethod method) async {
     // 복합 인증: 순차 실행 후 결과 합산
-    final components = _compositeMap[method];
-    if (components != null) {
-      return _verifyComposite(method, components);
+    if (method.isComposite) {
+      return _verifyComposite(method, method.components);
     }
 
     // 단일 인증
@@ -119,12 +97,12 @@ class VerificationManager {
       }
     }
     // 복합 인증: 구성 요소가 모두 사용 가능하면 추가
-    for (final entry in _compositeMap.entries) {
-      final allAvailable = entry.value.every(
+    for (final method in VerificationMethod.values.where((m) => m.isComposite)) {
+      final allAvailable = method.components.every(
         (m) => available.contains(m),
       );
       if (allAvailable) {
-        available.add(entry.key);
+        available.add(method);
       }
     }
     return available;

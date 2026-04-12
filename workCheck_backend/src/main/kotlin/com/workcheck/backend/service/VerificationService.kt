@@ -11,6 +11,7 @@ import com.workcheck.backend.repository.UserRepository
 import com.workcheck.backend.repository.UserVerificationOverrideRepository
 import com.workcheck.backend.repository.VerificationConfigRepository
 import com.workcheck.backend.repository.VerificationMethodRepository
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
@@ -24,6 +25,10 @@ class VerificationService(
     private val userRepository: UserRepository,
     private val userVerificationOverrideRepository: UserVerificationOverrideRepository
 ) {
+    companion object {
+        private val logger = LoggerFactory.getLogger(VerificationService::class.java)
+    }
+
     // 근무지의 전체 인증 방법 목록
     fun getMethodsByWorkplace(workplaceId: Long): VerificationMethodListResponse {
         val methods = verificationMethodRepository.findAllByWorkplaceId(workplaceId)
@@ -124,6 +129,8 @@ class VerificationService(
         val matchedMethod = findMatchingMethod(effectiveMethods, verificationMethod)
             ?: throw IllegalArgumentException("활성화된 인증 방법이 아닙니다: $verificationMethod")
 
+        logger.info("[Verify] userId=$userId, method=${matchedMethod.methodType}, workplace=${workplace.name}")
+
         // 설정값: 오버라이드 config가 있으면 오버라이드, 없으면 근무지 기본
         val override = overrideMap[matchedMethod.methodType]
         val configData = if (override != null && override.configData.isNotEmpty()) {
@@ -183,13 +190,14 @@ class VerificationService(
     ): Boolean {
         val dataLat = (data["latitude"] as? Number)?.toDouble() ?: return false
         val dataLon = (data["longitude"] as? Number)?.toDouble() ?: return false
-        // 근무지 좌표 사용 (없으면 config fallback)
         val targetLat = workplaceLat ?: (config["latitude"] as? Number)?.toDouble() ?: return false
         val targetLon = workplaceLon ?: (config["longitude"] as? Number)?.toDouble() ?: return false
         val radiusMeters = (config["radius_meters"] as? Number)?.toDouble() ?: return false
 
         val distance = haversineDistance(dataLat, dataLon, targetLat, targetLon)
-        return distance <= radiusMeters
+        val result = distance <= radiusMeters
+        logger.info("[GPS] 앱좌표=($dataLat, $dataLon), 근무지좌표=($targetLat, $targetLon), 거리=${String.format("%.1f", distance)}m, 허용반경=${radiusMeters}m → ${if (result) "✅통과" else "❌실패"}")
+        return result
     }
 
     // WiFi 검증: SSID 또는 BSSID 매칭
@@ -199,21 +207,30 @@ class VerificationService(
         val configSsid = config["ssid"] as? String
         val configBssid = config["bssid"] as? String
 
-        if (configBssid != null && dataBssid != null) {
-            return configBssid.equals(dataBssid, ignoreCase = true)
+        logger.info("[WiFi] 앱={ssid=$dataSsid, bssid=$dataBssid}, 설정={ssid=$configSsid, bssid=$configBssid}")
+
+        val result = if (configBssid != null && configBssid.isNotEmpty() && dataBssid != null) {
+            val matched = configBssid.equals(dataBssid, ignoreCase = true)
+            logger.info("[WiFi] BSSID 비교: $dataBssid vs $configBssid → ${if (matched) "✅통과" else "❌실패"}")
+            matched
+        } else if (configSsid != null && dataSsid != null) {
+            val matched = configSsid == dataSsid
+            logger.info("[WiFi] SSID 비교: $dataSsid vs $configSsid → ${if (matched) "✅통과" else "❌실패"}")
+            matched
+        } else {
+            logger.warn("[WiFi] 비교 불가: 앱 또는 설정 데이터 부족")
+            false
         }
-        if (configSsid != null && dataSsid != null) {
-            return configSsid == dataSsid
-        }
-        return false
+        return result
     }
 
     // NFC 검증: tag_id 매칭
     private fun verifyNfc(data: Map<String, Any>, config: Map<String, Any>): Boolean {
         val dataTagId = data["tag_id"] as? String ?: return false
         val configTagId = config["tag_id"] as? String ?: return false
-        // 대소문자 무시하여 비교 (NFC tag_id 포맷 차이 허용)
-        return dataTagId.equals(configTagId, ignoreCase = true)
+        val result = dataTagId.equals(configTagId, ignoreCase = true)
+        logger.info("[NFC] 앱태그=$dataTagId, 설정태그=$configTagId → ${if (result) "✅통과" else "❌실패"}")
+        return result
     }
 
     // Beacon 검증: UUID/Major/Minor 매칭 + RSSI 임계값 (에러 코드 분기)
@@ -224,6 +241,12 @@ class VerificationService(
         val configMajor = (config["major"] as? Number)?.toInt()
         val configMinor = (config["minor"] as? Number)?.toInt()
         val rssiThreshold = (config["rssi_threshold"] as? Number)?.toInt() ?: -70
+
+        logger.info("[Beacon] 설정={uuid=$configUuid, major=$configMajor, minor=$configMinor, rssi임계=$rssiThreshold}")
+        logger.info("[Beacon] 감지된 기기 수: ${devices?.size ?: 0}")
+        devices?.forEachIndexed { i, d ->
+            logger.info("[Beacon]   [$i] uuid=${d["uuid"]}, major=${d["major"]}, minor=${d["minor"]}, rssi=${d["rssi"]}")
+        }
 
         // 비콘이 아예 감지되지 않음
         if (devices.isNullOrEmpty()) {
@@ -241,6 +264,8 @@ class VerificationService(
                 (configMinor == null || configMinor == (device["minor"] as? Number)?.toInt())
         }
 
+        logger.info("[Beacon] UUID+Major+Minor 매칭 결과: ${uuidMatched.size}개")
+
         // UUID 일치하는 비콘 없음
         if (uuidMatched.isEmpty()) {
             throw VerificationFailedException(
@@ -254,6 +279,8 @@ class VerificationService(
             val rssi = (device["rssi"] as? Number)?.toInt() ?: -100
             rssi >= rssiThreshold
         }
+
+        logger.info("[Beacon] RSSI 통과 여부: ${if (rssiPassed) "✅통과" else "❌미달 (최대RSSI < $rssiThreshold)"}")
 
         // RSSI 미달
         if (!rssiPassed) {
@@ -270,7 +297,9 @@ class VerificationService(
     private fun verifyQr(data: Map<String, Any>, config: Map<String, Any>): Boolean {
         val dataQr = data["qr_data"] as? String ?: return false
         val configQr = config["qr_code"] as? String ?: return false
-        return dataQr == configQr
+        val result = dataQr == configQr
+        logger.info("[QR] 앱QR=$dataQr, 설정QR=$configQr → ${if (result) "✅통과" else "❌실패"}")
+        return result
     }
 
     // Haversine 거리 계산 (미터)

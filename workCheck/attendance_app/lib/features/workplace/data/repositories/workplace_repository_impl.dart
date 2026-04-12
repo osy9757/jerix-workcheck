@@ -29,7 +29,7 @@ class WorkplaceRepositoryImpl implements WorkplaceRepository {
       return Right(model.toEntity());
     } on DioException catch (e) {
       return Left(ServerFailure(
-        message: e.response?.data?['message'] ?? '설정을 불러올 수 없습니다.',
+        message: e.response?.data?['error'] ?? '설정을 불러올 수 없습니다.',
         statusCode: e.response?.statusCode,
       ));
     } catch (e) {

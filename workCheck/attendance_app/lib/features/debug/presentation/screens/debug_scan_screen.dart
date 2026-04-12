@@ -1,3 +1,7 @@
+// 디버그 스캔 화면 — NFC/Beacon/WiFi 원시 데이터 확인용
+// 진입: 메인 화면 사용자 이름 5초 롱프레스
+// 용도: 인증 설정에 필요한 tag_id, UUID, SSID 등을 사전에 파악
+
 import 'dart:async';
 import 'dart:io';
 
@@ -51,7 +55,7 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
     super.dispose();
   }
 
-  /// 모든 스캔 중지
+  // 활성 중인 모든 스캔(NFC 세션, BLE 구독, Beacon ranging) 정리
   void _stopAllScans() {
     if (_nfcSessionActive) {
       NfcManager.instance.stopSession();
@@ -64,7 +68,7 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
     FlutterBluePlus.stopScan();
   }
 
-  /// 로그아웃 처리
+  // JWT 삭제 후 로그인 화면으로 이동
   Future<void> _handleLogout() async {
     final authLocal = getIt<AuthLocalDatasource>();
     await authLocal.clearAll();
@@ -72,7 +76,7 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
     context.go('/login');
   }
 
-  /// NFC 스캔 시작
+  // NFC 태그 UID 읽기 — 태그를 대면 타입/ID/Raw bytes 표시
   Future<void> _startNfcScan() async {
     _stopAllScans();
     setState(() {
@@ -82,6 +86,7 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
       _results.add('📱 NFC 태그를 기기 뒷면에 대주세요...');
     });
 
+    // NFC 하드웨어 가용 여부 확인
     final availability = await NfcManager.instance.checkAvailability();
     if (availability != NfcAvailability.enabled) {
       setState(() {
@@ -93,11 +98,12 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
     }
 
     _nfcSessionActive = true;
-    // startSession은 await하지 않음 — 세션이 열린 상태로 태그 대기
-    // onDiscovered 콜백에서 결과를 처리하고 세션을 종료
+    // NFC 세션 오픈 — await하지 않고 태그 대기 상태 유지
+    // 태그 감지 시 onDiscovered 콜백에서 결과 처리 후 세션 종료
     NfcManager.instance.startSession(
       pollingOptions: {NfcPollingOption.iso14443, NfcPollingOption.iso15693},
       onDiscovered: (NfcTag tag) async {
+        // nfc_tag_helper로 태그 정보 추출 (타입, UID, raw bytes)
         final tagInfo = extractTagInfo(tag);
         if (mounted) {
           setState(() {
@@ -126,7 +132,9 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
     });
   }
 
-  /// Beacon 스캔 시작
+  // 주변 iBeacon 스캔 (5초) — UUID/Major/Minor/RSSI 표시
+  // iOS: CoreLocation ranging (알려진 UUID 목록 필요)
+  // Android: BLE 스캔 → Apple manufacturerData(0x004C) iBeacon 파싱
   Future<void> _startBeaconScan() async {
     _stopAllScans();
     setState(() {
@@ -136,7 +144,7 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
       _results.add('🔍 주변 비콘 스캔 중... (5초)');
     });
 
-    // iOS: 블루투스 + 위치, Android: 블루투스 스캔
+    // 플랫폼별 권한 요청 — iOS: BT+위치, Android: BT 스캔+위치
     if (Platform.isIOS) {
       await Permission.bluetooth.request();
       await Permission.locationWhenInUse.request();
@@ -148,9 +156,8 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
     final detectedBeacons = <String, Map<String, dynamic>>{};
 
     if (Platform.isIOS) {
-      // iOS: CoreBluetooth는 iBeacon 광고 데이터를 숨기므로
-      // dchs_flutter_beacon (CoreLocation ranging)을 사용
-      // 반드시 initializeScanning 호출 후 ranging 가능
+      // iOS: CoreBluetooth가 iBeacon 광고를 숨기므로 CoreLocation ranging 사용
+      // ranging하려면 UUID를 미리 알아야 함 → 알려진 UUID 목록으로 등록
       const knownUuids = [
         'E2C56DB5-DFFB-48D2-B060-D0F5A71096E0',
         '99999999-9999-9999-9999-999999999999',
@@ -178,7 +185,8 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
         debugPrint('[DebugScan] iOS beacon ranging 오류: $e');
       }
     } else {
-      // Android: flutter_blue_plus BLE 스캔으로 iBeacon manufacturer data 파싱
+      // Android: BLE 스캔 → Apple Company ID(0x004C)의 manufacturerData에서
+      // iBeacon 프로토콜 파싱 (UUID 16B + Major 2B + Minor 2B + TxPower 1B)
       _bleSubscription = FlutterBluePlus.onScanResults.listen((results) {
         for (final r in results) {
           final mfData = r.advertisementData.manufacturerData;
@@ -234,13 +242,13 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
     });
   }
 
-  /// UUID 바이트 배열을 문자열로 변환
+  // 16바이트 배열을 8-4-4-4-12 형식의 UUID 문자열로 변환
   String _parseUuid(List<int> bytes) {
     final hex = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20, 32)}'.toUpperCase();
   }
 
-  /// WiFi 스캔 시작
+  // 현재 연결된 WiFi 정보 조회 — SSID, BSSID, IP, 게이트웨이, 서브넷
   Future<void> _startWifiScan() async {
     _stopAllScans();
     setState(() {
@@ -447,7 +455,7 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
     );
   }
 
-  /// 스캔 모드 선택 버튼
+  // NFC/Beacon/WiFi 모드 선택 버튼 — 활성 모드는 초록색 하이라이트
   Widget _buildModeButton(String label, IconData icon, _ScanMode mode, VoidCallback onTap) {
     final isActive = _currentMode == mode;
     return Expanded(
@@ -488,5 +496,5 @@ class _DebugScanScreenState extends State<DebugScanScreen> {
   }
 }
 
-/// 스캔 모드 구분
+// 스캔 모드 구분 — none: 초기 상태, nfc/beacon/wifi: 각 스캔 모드
 enum _ScanMode { none, nfc, beacon, wifi }

@@ -43,4 +43,13 @@ Thumbs.db
 
 # Claude
 .claude/cache/
+.claude/tsc-cache/
 thoughts/
+
+# TLDR
+.tldr/
+**/.tldr/
+**/.tldrignore
+
+# Workspace
+_workspace/

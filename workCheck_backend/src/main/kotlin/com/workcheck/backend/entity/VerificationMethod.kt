@@ -5,6 +5,7 @@ import org.hibernate.annotations.JdbcTypeCode
 import org.hibernate.type.SqlTypes
 import java.time.OffsetDateTime
 
+// 근무지별 인증 방법 엔티티 - 근무지+방법유형 조합으로 고유 식별
 @Entity
 @Table(
     name = "verification_methods",

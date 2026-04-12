@@ -9,6 +9,11 @@ import '../../domain/verification_method.dart';
 import '../../domain/verification_result.dart';
 import '../../domain/verification_strategy.dart';
 
+/// NFC 태그 기반 출퇴근 인증 서비스
+///
+/// NFC 태그의 UID를 읽어 서버에 등록된 태그와 일치 여부를 확인한다.
+/// 태그 스캔은 다이얼로그(NfcTagDialog)를 통해 사용자에게 안내하며,
+/// 로컬에서 먼저 expectedTagId와 비교 후 서버로 전송한다.
 @Named('nfc')
 @LazySingleton(as: VerificationStrategy)
 class NfcVerificationService implements VerificationStrategy {
@@ -18,15 +23,21 @@ class NfcVerificationService implements VerificationStrategy {
   @override
   VerificationMethod get method => VerificationMethod.nfc;
 
+  /// 기기의 NFC 하드웨어가 활성화되어 있는지 확인
   @override
   Future<bool> isAvailable() async {
     final availability = await NfcManager.instance.checkAvailability();
     return availability == NfcAvailability.enabled;
   }
 
+  /// NFC는 OS 수준에서 관리되므로 별도 런타임 권한이 불필요
   @override
   Future<bool> requestPermissions() async => true; // NFC는 별도 권한 불필요
 
+  /// NFC 인증 실행
+  ///
+  /// NFC 비활성화 → 안내 다이얼로그 → 태그 스캔 다이얼로그 → 로컬 태그 비교 순서로 진행.
+  /// expectedTagId가 설정되어 있으면 로컬에서 먼저 불일치를 걸러내어 불필요한 서버 요청을 방지한다.
   @override
   Future<VerificationResult> verify() async {
     final context = rootNavigatorKey.currentContext;

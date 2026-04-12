@@ -20,6 +20,10 @@ import '../widgets/gps_spoofing_dialog.dart';
 import '../widgets/nfc_check_fail_dialog.dart';
 import '../widgets/wifi_unavailable_dialog.dart';
 
+/// 출퇴근 메인 화면
+///
+/// 현재 시간, 출근지/현위치 정보, 지도, 출퇴근 버튼을 표시.
+/// BLoC을 통해 출퇴근 상태를 관리하며 인증 결과에 따라 다이얼로그를 분기.
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
 
@@ -455,6 +459,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
+  /// 사용자 인사말 + 히스토리 이동 버튼
   Widget _buildGreeting() {
     final displayName = _userName.isNotEmpty ? _userName : '사용자';
     return GestureDetector(
@@ -488,6 +493,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// 출퇴근 카드 (날짜, 시간, 출근지/현위치, 출퇴근 버튼 포함)
   Widget _buildAttendanceCard({
     required AttendanceState state,
     required bool isClockedIn,
@@ -706,6 +712,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// 오늘 출퇴근 시간 요약 카드
   Widget _buildStatusCard({
     DateTime? clockInTime,
     DateTime? clockOutTime,
@@ -732,6 +739,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// 출근/퇴근 시간 표시 컬럼 (날짜 + 시간)
   Widget _buildStatusColumn(String title, DateTime? time) {
     return Expanded(
       child: Column(
@@ -779,6 +787,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// 카카오맵 섹션 (출근지 + 현위치 마커, GPS 반경 원)
   Widget _buildMapSection() {
     return Center(
       child: Container(

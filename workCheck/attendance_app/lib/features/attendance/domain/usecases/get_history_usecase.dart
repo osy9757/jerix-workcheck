@@ -14,6 +14,7 @@ class GetHistoryUseCase implements UseCase<HistoryEntity, GetHistoryParams> {
 
   const GetHistoryUseCase(this._repository);
 
+  /// 기간(from~to)에 해당하는 출퇴근 히스토리를 조회
   @override
   Future<Either<Failure, HistoryEntity>> call(GetHistoryParams params) {
     return _repository.getHistory(from: params.from, to: params.to);
@@ -22,7 +23,10 @@ class GetHistoryUseCase implements UseCase<HistoryEntity, GetHistoryParams> {
 
 /// 히스토리 조회 파라미터
 class GetHistoryParams extends Equatable {
+  /// 조회 시작일 (yyyy-MM-dd 형식)
   final String from;
+
+  /// 조회 종료일 (yyyy-MM-dd 형식)
   final String to;
 
   const GetHistoryParams({required this.from, required this.to});

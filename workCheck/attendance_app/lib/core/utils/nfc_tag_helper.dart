@@ -15,6 +15,9 @@ import 'package:nfc_manager/src/nfc_manager_ios/tags/felica.dart';
 import 'package:nfc_manager/src/nfc_manager_android/tags/tag.dart';
 
 /// NFC 태그에서 추출한 식별 정보
+///
+/// 플랫폼(iOS/Android)마다 태그 접근 API가 달라서
+/// identifier와 tagType을 통합된 형태로 제공한다.
 class NfcTagInfo {
   /// 태그 identifier 바이트 (null이면 추출 실패)
   final Uint8List? identifier;
@@ -24,7 +27,7 @@ class NfcTagInfo {
 
   const NfcTagInfo({this.identifier, required this.tagType});
 
-  /// identifier를 hex 문자열로 변환 (예: "04:a3:2b:...")
+  /// 서버 전송용 문자열 생성 — 바이트 배열을 콜론 구분 hex로 변환
   String get uid {
     final id = identifier;
     if (id == null || id.isEmpty) return 'unknown';
@@ -46,6 +49,8 @@ NfcTagInfo extractTagInfo(NfcTag tag) {
 }
 
 /// iOS: MiFare → ISO 7816 → ISO 15693 → FeliCa 순으로 identifier 추출
+///
+/// 가장 흔한 MiFare부터 시도하여 첫 매칭된 태그의 identifier를 반환한다.
 NfcTagInfo _extractIos(NfcTag tag) {
   final mifare = MiFareIos.from(tag);
   if (mifare != null) {
@@ -72,6 +77,9 @@ NfcTagInfo _extractIos(NfcTag tag) {
 }
 
 /// Android: NfcTagAndroid에서 id + techList 추출
+///
+/// Android는 단일 NfcTagAndroid 클래스로 모든 태그를 처리하며
+/// techList에 지원 기술(NfcA, IsoDep 등)이 포함된다.
 NfcTagInfo _extractAndroid(NfcTag tag) {
   final androidTag = NfcTagAndroid.from(tag);
   if (androidTag != null) {

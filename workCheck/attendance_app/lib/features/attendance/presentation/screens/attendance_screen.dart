@@ -296,10 +296,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         id: 'current_location',
       );
 
+      // 마커 아이콘(40px * pixelRatio 2.0 = 80px)이 잘리지 않도록 패딩 확보
+      // 지도 높이(230.h)에서 상하 마커가 모두 보이려면 충분한 여유 필요
       await controller.moveCamera(
         CameraUpdate.fitMapPoints(
           [destination, currentLocation],
-          padding: 80,
+          padding: 120,
         ),
       );
 

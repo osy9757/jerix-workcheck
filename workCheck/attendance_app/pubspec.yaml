@@ -11,26 +11,26 @@ dependencies:
     sdk: flutter
 
   # State Management
-  flutter_bloc: ^8.1.6
-  bloc: ^8.1.4
+  flutter_bloc: ^9.1.1
+  bloc: ^9.2.0
 
   # DI
-  get_it: ^8.0.2
+  get_it: ^9.2.1
   injectable: ^2.5.0
 
   # Network
   dio: ^5.7.0
-  retrofit: ">=4.4.1 <4.9.0"
+  retrofit: ^4.9.2
 
   # Local Storage
   shared_preferences: ^2.3.4
 
   # Routing
-  go_router: ^14.6.2
+  go_router: ^17.2.0
 
   # Data Classes
   equatable: ^2.0.7
-  freezed_annotation: ^2.4.4
+  freezed_annotation: ^3.1.0
   json_annotation: ^4.9.0
 
   # Functional
@@ -41,17 +41,17 @@ dependencies:
 
   # Utils
   logger: ^2.5.0
-  intl: ^0.19.0
+  intl: ^0.20.2
   flutter_screenutil: ^5.9.3
-  permission_handler: ^11.3.1
+  permission_handler: ^12.0.1
 
   # Verification Methods
-  geolocator: ^13.0.2        # GPS
-  mobile_scanner: ^6.0.2      # QR Code
+  geolocator: ^14.0.2        # GPS
+  mobile_scanner: ^7.2.0      # QR Code
   nfc_manager: ^4.1.0         # NFC
-  flutter_blue_plus: ^1.35.3   # Bluetooth (Android BLE)
+  flutter_blue_plus: ^2.2.1   # Bluetooth (Android BLE)
   dchs_flutter_beacon: ^0.6.2  # iBeacon (iOS CoreLocation + Android)
-  network_info_plus: ^6.1.1    # WiFi SSID/BSSID
+  network_info_plus: ^7.0.0    # WiFi SSID/BSSID
   lottie: ^3.3.2
   kakao_map_sdk: ^1.2.4
   geocoding: ^4.0.0
@@ -60,13 +60,13 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   build_runner: ^2.4.13
-  freezed: ^2.5.7
+  freezed: ^3.2.5
   json_serializable: ^6.8.0
   injectable_generator: ^2.7.0
-  retrofit_generator: ^9.1.5
-  bloc_test: ^9.1.7
+  retrofit_generator: ^10.2.3
+  bloc_test: ^10.0.0
   mocktail: ^1.0.4
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true

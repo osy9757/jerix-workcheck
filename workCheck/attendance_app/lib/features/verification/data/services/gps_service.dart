@@ -60,6 +60,20 @@ class GpsVerificationService implements VerificationStrategy {
         ),
       );
 
+      // GPS 조작(Mock Location) 감지
+      // Android: Position.isMocked 필드로 직접 확인 (geolocator_android 지원)
+      // iOS: 공식 Mock Location API가 없어 accuracy=0 등 비정상 패턴으로 휴리스틱 판단
+      final spoofReason = _detectSpoofing(position);
+      if (spoofReason != null) {
+        return VerificationResult(
+          method: method,
+          isVerified: false,
+          data: {},
+          // errorMessage 앞에 "GPS_SPOOFED:" 프리픽스를 붙여 Bloc이 errorCode로 분기 가능하게 함
+          errorMessage: 'GPS_SPOOFED:$spoofReason',
+        );
+      }
+
       return VerificationResult(
         method: method,
         isVerified: true,
@@ -78,5 +92,31 @@ class GpsVerificationService implements VerificationStrategy {
         errorMessage: 'GPS 위치를 가져올 수 없습니다: ${e.toString()}',
       );
     }
+  }
+
+  /// GPS 조작 감지
+  ///
+  /// 감지 시 사유 문자열 반환, 정상이면 null.
+  /// - Android: Position.isMocked가 true면 즉시 조작으로 판단
+  /// - 공통: accuracy가 0.0이거나 비정상적으로 낮으면(<0.5m) 조작 가능성
+  ///   (일반 GPS는 최소 3~5m 오차, 0m에 가까운 값은 조작 시그널)
+  String? _detectSpoofing(Position position) {
+    // 1순위: Android의 isMocked 플래그 (가장 신뢰 가능)
+    if (position.isMocked) {
+      return '가상 위치 앱이 감지되었습니다';
+    }
+
+    // 2순위: 비정상적으로 완벽한 accuracy (iOS/탈옥 기기 휴리스틱)
+    // 실제 GPS는 물리적으로 0.5m 미만의 오차를 낼 수 없음
+    if (position.accuracy > 0 && position.accuracy < 0.5) {
+      return '위치 정확도가 비정상적입니다';
+    }
+
+    // 3순위: accuracy가 정확히 0 또는 음수 (센서 오류 또는 조작)
+    if (position.accuracy <= 0) {
+      return '위치 정확도를 확인할 수 없습니다';
+    }
+
+    return null;
   }
 }

@@ -4,7 +4,7 @@
 /// 기본값: defaultBaseUrl (에뮬레이터/실기기 환경에 따라 변경)
 abstract class ApiConstants {
   /// 기본 서버 URL (Settings에서 변경 전 사용)
-  static const String defaultBaseUrl = 'http://192.168.45.31:8081';
+  static const String defaultBaseUrl = 'http://175.126.191.135:8081';
 
   /// SharedPreferences 키 (settings_screen과 동일)
   static const String serverUrlKey = 'server_base_url';

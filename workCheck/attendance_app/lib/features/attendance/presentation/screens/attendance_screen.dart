@@ -16,6 +16,7 @@ import '../widgets/beacon_mismatch_dialog.dart';
 import '../widgets/beacon_unavailable_dialog.dart';
 import '../widgets/clock_in_confirm_dialog.dart';
 import '../widgets/clock_in_unavailable_dialog.dart';
+import '../widgets/gps_spoofing_dialog.dart';
 import '../widgets/nfc_check_fail_dialog.dart';
 import '../widgets/wifi_unavailable_dialog.dart';
 
@@ -411,6 +412,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             case 'BEACON_NOT_DETECTED':
             case 'BEACON_RSSI_TOO_WEAK':
               BeaconUnavailableDialog.show(context);
+              break;
+            case 'GPS_SPOOFED':
+              // GPS 조작(가상 위치) 감지 → 경고 다이얼로그
+              GpsSpoofingDialog.show(context, reason: state.errorMessage);
               break;
             default:
               // 알 수 없는 에러 코드 → 기존 메시지 기반 분기로 폴백

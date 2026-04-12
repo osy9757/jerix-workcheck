@@ -158,12 +158,21 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
       final verificationResult = await _verificationManager.verify(method);
 
       if (!verificationResult.isVerified) {
-        // 하나라도 실패 시 에러 emit 후 종료 (로컬 인증 실패 → errorCode 없음)
+        // 로컬 인증 실패 → 기본적으로 errorCode 없음
+        // 단, GPS 조작 감지 시 errorMessage에 "GPS_SPOOFED:" 프리픽스가 붙어있으면
+        // errorCode를 'GPS_SPOOFED'로 설정하여 UI에서 전용 다이얼로그를 띄우게 함
+        final rawMessage = verificationResult.errorMessage ?? '';
+        final isSpoofed = rawMessage.startsWith('GPS_SPOOFED:');
+        final cleanMessage = isSpoofed
+            ? rawMessage.substring('GPS_SPOOFED:'.length).trim()
+            : rawMessage;
+
         emit(state.copyWith(
           uiState: AttendanceUiState.error,
-          errorMessage: verificationResult.errorMessage ??
-              '${method.label} 인증에 실패했습니다.',
-          errorCode: null,
+          errorMessage: cleanMessage.isNotEmpty
+              ? cleanMessage
+              : '${method.label} 인증에 실패했습니다.',
+          errorCode: isSpoofed ? 'GPS_SPOOFED' : null,
         ));
         return;
       }

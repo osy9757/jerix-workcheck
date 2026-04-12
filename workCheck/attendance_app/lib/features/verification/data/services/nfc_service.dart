@@ -2,9 +2,7 @@ import 'package:injectable/injectable.dart';
 import 'package:nfc_manager/nfc_manager.dart';
 
 import '../../../../presentation/navigation/app_router.dart';
-import '../../../attendance/presentation/widgets/nfc_mismatch_dialog.dart';
 import '../../../attendance/presentation/widgets/nfc_tag_dialog.dart';
-import '../../../attendance/presentation/widgets/nfc_unavailable_dialog.dart';
 import '../../domain/verification_method.dart';
 import '../../domain/verification_result.dart';
 import '../../domain/verification_strategy.dart';
@@ -53,7 +51,6 @@ class NfcVerificationService implements VerificationStrategy {
     // NFC 사용 가능 여부 확인
     final availability = await NfcManager.instance.checkAvailability();
     if (availability != NfcAvailability.enabled) {
-      await NfcUnavailableDialog.show(context);
       return VerificationResult(
         method: method,
         isVerified: false,
@@ -77,7 +74,6 @@ class NfcVerificationService implements VerificationStrategy {
 
     // 로컬 태그 ID 비교 (설정값이 있을 경우)
     if (expectedTagId != null && tagId != expectedTagId) {
-      await NfcMismatchDialog.show(context);
       return VerificationResult(
         method: method,
         isVerified: false,

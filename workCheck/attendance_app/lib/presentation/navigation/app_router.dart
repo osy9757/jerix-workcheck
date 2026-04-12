@@ -10,6 +10,7 @@ import '../../features/attendance/presentation/screens/qr_scan_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/auth/presentation/screens/settings_screen.dart';
+import '../../features/debug/presentation/screens/debug_scan_screen.dart';
 
 abstract class AppRoutes {
   static const login = '/login';
@@ -18,6 +19,7 @@ abstract class AppRoutes {
   static const register = '/register';
   static const settings = '/settings';
   static const qrScan = '/qr-scan';
+  static const debugScan = '/debug-scan';
 }
 
 /// 글로벌 네비게이터 키 (서비스 레이어에서 다이얼로그 표시용)
@@ -55,6 +57,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: AppRoutes.settings,
       builder: (context, state) => const SettingsScreen(),
+    ),
+    GoRoute(
+      path: AppRoutes.debugScan,
+      builder: (context, state) => const DebugScanScreen(),
     ),
   ],
   errorBuilder: (context, state) => Scaffold(

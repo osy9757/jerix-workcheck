@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -318,6 +320,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   @override
   void dispose() {
+    _longPressTimer?.cancel();
     _pulseAnimation.removeListener(_onPulseUpdate);
     _pulseController.dispose();
     super.dispose();
@@ -459,11 +462,24 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
+  /// 5초 롱프레스 타이머 (디버그 스캔 진입용)
+  Timer? _longPressTimer;
+
   /// 사용자 인사말 + 히스토리 이동 버튼
+  /// 5초 롱프레스 시 디버그 스캔 화면으로 이동
   Widget _buildGreeting() {
     final displayName = _userName.isNotEmpty ? _userName : '사용자';
     return GestureDetector(
       onTap: () => context.push('/history'),
+      onLongPressStart: (_) {
+        _longPressTimer = Timer(const Duration(seconds: 5), () {
+          if (mounted) context.push('/debug-scan');
+        });
+      },
+      onLongPressEnd: (_) {
+        _longPressTimer?.cancel();
+        _longPressTimer = null;
+      },
       child: Container(
         width: 343.w,
         padding: EdgeInsets.symmetric(vertical: 16.h),

@@ -43,7 +43,7 @@ services:
       dockerfile: Dockerfile
     container_name: workcheck-web
     ports:
-      - "3001:80"
+      - "3002:80"
     depends_on:
       - api
 

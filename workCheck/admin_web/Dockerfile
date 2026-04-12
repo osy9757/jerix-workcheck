@@ -1,7 +1,7 @@
 # Stage 1: Flutter 웹 빌드
 FROM ghcr.io/cirruslabs/flutter:stable AS build
 WORKDIR /app
-COPY pubspec.yaml pubspec.lock ./
+COPY pubspec.yaml pubspec.loc* ./
 RUN flutter pub get
 COPY . .
 RUN flutter build web --release

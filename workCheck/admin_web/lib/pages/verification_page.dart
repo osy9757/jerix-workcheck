@@ -979,11 +979,9 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
       return;
     }
 
-    // 현재 입력값을 config로 변환 (프리셋용 - 위치 좌표는 제외)
+    // 현재 입력값을 config로 변환 (프리셋용 - 위치 좌표 포함)
     final config = <String, dynamic>{};
     for (final field in widget.fields) {
-      // GPS 좌표는 근무지 종속이므로 프리셋에 저장하지 않음
-      if (field.key == 'latitude' || field.key == 'longitude') continue;
       final text = _controllers[field.key]?.text.trim() ?? '';
       if (text.isEmpty) continue;
       switch (field.type) {

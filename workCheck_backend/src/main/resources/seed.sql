@@ -164,7 +164,9 @@ INSERT INTO verification_presets (id, name, method_type, config_data, memo) VALU
     (2, '마포 NFC 백업',    'NFC',    '{"tag_id": "04:AA:BB:CC:DD:EE:77"}',                                                                  '마포지점 보조 태그'),
     (3, '회사 WiFi 5G',     'WIFI',   '{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}',                                                         '종합테스트센터 WiFi'),
     (4, '비콘1 (강남삼성)',  'BEACON', '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}', '비콘1 테스트지점'),
-    (5, '비콘2 (강남봉은사)','BEACON', '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}', '비콘2 테스트지점');
+    (5, '비콘2 (강남봉은사)','BEACON', '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}', '비콘2 테스트지점'),
+    (6, '집',               'GPS',    '{"latitude": 37.5391, "longitude": 126.9453, "radius_meters": 200}',                                  '마포지점 인근'),
+    (7, '회사',             'GPS',    '{"latitude": 37.541905, "longitude": 126.949614, "radius_meters": 200}',                              '회사 위치 GPS');
 
 -- ============================================
 -- 8. 시퀀스 리셋

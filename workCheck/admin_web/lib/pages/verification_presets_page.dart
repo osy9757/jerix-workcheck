@@ -154,10 +154,22 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
   /// configData를 한 줄 요약 문자열로 만들기 (DataTable 표시용)
   String _summarizeConfig(VerificationPreset p) {
     if (p.configData.isEmpty) return '-';
+    // 좌표가 모두 있으면 "(lat, lng)" 형태로, 없으면 null
+    final lat = p.configData['latitude'];
+    final lng = p.configData['longitude'];
+    final coord = (lat != null && lng != null) ? '($lat, $lng)' : null;
+
     switch (p.methodType) {
       case 'NFC':
-      case 'NFC_GPS':
         return 'tag_id: ${p.configData['tag_id'] ?? '-'}';
+      case 'NFC_GPS':
+        // tag_id + (좌표 있으면) + 반경
+        final tag = p.configData['tag_id'] ?? '-';
+        final r = p.configData['radius_meters'] ?? '-';
+        final parts = <String>['tag_id: $tag'];
+        if (coord != null) parts.add(coord);
+        parts.add('반경: ${r}m');
+        return parts.join(' / ');
       case 'WIFI':
       case 'WIFI_QR':
         final ssid = p.configData['ssid'] ?? '-';
@@ -165,13 +177,29 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
         return 'SSID: $ssid / BSSID: $bssid';
       case 'GPS':
       case 'GPS_QR':
+        // 좌표 있으면 좌표 + 반경, 없으면 반경만
         final r = p.configData['radius_meters'] ?? '-';
+        if (coord != null) {
+          return '$coord / 반경: ${r}m';
+        }
         return '반경: ${r}m';
       case 'BEACON':
-      case 'BEACON_GPS':
         final uuid = p.configData['uuid']?.toString() ?? '-';
         final shortUuid = uuid.length > 8 ? '${uuid.substring(0, 8)}…' : uuid;
         return 'UUID: $shortUuid / major:${p.configData['major'] ?? '-'} / minor:${p.configData['minor'] ?? '-'}';
+      case 'BEACON_GPS':
+        // BEACON 요약 + (좌표 있으면) + 반경
+        final uuid = p.configData['uuid']?.toString() ?? '-';
+        final shortUuid = uuid.length > 8 ? '${uuid.substring(0, 8)}…' : uuid;
+        final r = p.configData['radius_meters'] ?? '-';
+        final parts = <String>[
+          'UUID: $shortUuid',
+          'major:${p.configData['major'] ?? '-'}',
+          'minor:${p.configData['minor'] ?? '-'}',
+        ];
+        if (coord != null) parts.add(coord);
+        parts.add('반경: ${r}m');
+        return parts.join(' / ');
       default:
         // 알 수 없는 타입은 키만 노출
         return p.configData.keys.join(', ');
@@ -435,12 +463,15 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     _methodType = p?.methodType ?? 'NFC';
 
     // 가능한 모든 필드 키에 대해 컨트롤러 생성 (값 유지)
+    // GPS 계열은 좌표(latitude/longitude)도 프리셋에 직접 저장
     for (final key in const [
       'tag_id',
       'ssid',
       'bssid',
       'qr_code',
       'radius_meters',
+      'latitude',
+      'longitude',
       'uuid',
       'major',
       'minor',
@@ -473,7 +504,11 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
         return const [
           _PresetField('tag_id', 'NFC 태그 ID', '예: 04:E9:D8:3E:C8:2A:81',
               _PresetFieldType.string),
-          _PresetField('radius_meters', '반경 (m)', '예: 50',
+          _PresetField('latitude', '위도', '예: 37.5665',
+              _PresetFieldType.double_),
+          _PresetField('longitude', '경도', '예: 126.9780',
+              _PresetFieldType.double_),
+          _PresetField('radius_meters', '반경 (m)', '예: 200',
               _PresetFieldType.int_),
         ];
       case 'WIFI':
@@ -494,12 +529,20 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
         ];
       case 'GPS':
         return const [
-          _PresetField('radius_meters', '반경 (m)',
-              '좌표는 근무지에 종속되므로 프리셋에는 반경만 저장', _PresetFieldType.int_),
+          _PresetField('latitude', '위도', '예: 37.5665',
+              _PresetFieldType.double_),
+          _PresetField('longitude', '경도', '예: 126.9780',
+              _PresetFieldType.double_),
+          _PresetField('radius_meters', '반경 (m)', '예: 200',
+              _PresetFieldType.int_),
         ];
       case 'GPS_QR':
         return const [
-          _PresetField('radius_meters', '반경 (m)', '예: 50',
+          _PresetField('latitude', '위도', '예: 37.5665',
+              _PresetFieldType.double_),
+          _PresetField('longitude', '경도', '예: 126.9780',
+              _PresetFieldType.double_),
+          _PresetField('radius_meters', '반경 (m)', '예: 200',
               _PresetFieldType.int_),
           _PresetField(
               'qr_code', 'QR 코드', 'QR 페이로드', _PresetFieldType.string),
@@ -525,7 +568,11 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
               'minor', 'Minor', '정수값', _PresetFieldType.int_),
           _PresetField('rssi_threshold', 'RSSI 임계값', '음수 (예: -80)',
               _PresetFieldType.int_),
-          _PresetField('radius_meters', '반경 (m)', '예: 50',
+          _PresetField('latitude', '위도', '예: 37.5665',
+              _PresetFieldType.double_),
+          _PresetField('longitude', '경도', '예: 126.9780',
+              _PresetFieldType.double_),
+          _PresetField('radius_meters', '반경 (m)', '예: 200',
               _PresetFieldType.int_),
         ];
       default:

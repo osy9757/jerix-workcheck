@@ -205,54 +205,9 @@ class _VerificationPageState extends State<VerificationPage> {
     }
   }
 
-  /// 해당 방법의 편집 가능한 필드 목록 반환
-  List<_ConfigField> _getConfigFields(String methodType) {
-    switch (methodType) {
-      case 'GPS':
-      case 'GPS_QR':
-        return [
-          _ConfigField('latitude', '위도', '예: 37.5665', _FieldType.double_),
-          _ConfigField('longitude', '경도', '예: 126.9780', _FieldType.double_),
-          _ConfigField('radius_meters', '반경 (m)', '미터 단위', _FieldType.int_),
-        ];
-      case 'WIFI':
-      case 'WIFI_QR':
-        return [
-          _ConfigField('ssid', 'WiFi SSID', '네트워크 이름', _FieldType.string),
-          _ConfigField('bssid', 'WiFi BSSID', 'MAC 주소', _FieldType.string),
-        ];
-      case 'NFC':
-        return [
-          _ConfigField('tag_id', 'NFC 태그 ID', '태그 고유 ID', _FieldType.string),
-        ];
-      case 'NFC_GPS':
-        return [
-          _ConfigField('tag_id', 'NFC 태그 ID', '태그 고유 ID', _FieldType.string),
-          _ConfigField('latitude', '위도', '예: 37.5665', _FieldType.double_),
-          _ConfigField('longitude', '경도', '예: 126.9780', _FieldType.double_),
-          _ConfigField('radius_meters', '반경 (m)', '미터 단위', _FieldType.int_),
-        ];
-      case 'BEACON':
-        return [
-          _ConfigField('uuid', 'Beacon UUID', 'UUID', _FieldType.string),
-          _ConfigField('major', 'Major', '정수값', _FieldType.int_),
-          _ConfigField('minor', 'Minor', '정수값', _FieldType.int_),
-          _ConfigField('rssi_threshold', 'RSSI 임계값', '음수 (예: -70)', _FieldType.double_),
-        ];
-      case 'BEACON_GPS':
-        return [
-          _ConfigField('uuid', 'Beacon UUID', 'UUID', _FieldType.string),
-          _ConfigField('major', 'Major', '정수값', _FieldType.int_),
-          _ConfigField('minor', 'Minor', '정수값', _FieldType.int_),
-          _ConfigField('rssi_threshold', 'RSSI 임계값', '음수 (예: -70)', _FieldType.double_),
-          _ConfigField('latitude', '위도', '예: 37.5665', _FieldType.double_),
-          _ConfigField('longitude', '경도', '예: 126.9780', _FieldType.double_),
-          _ConfigField('radius_meters', '반경 (m)', '미터 단위', _FieldType.int_),
-        ];
-      default:
-        return [];
-    }
-  }
+  /// 해당 방법의 편집 가능한 필드 목록 반환 (톱레벨 헬퍼로 위임)
+  List<_ConfigField> _getConfigFields(String methodType) =>
+      _configFieldsFor(methodType);
 
   /// QR 코드 모달
   void _showQrModal(Workplace workplace) {
@@ -700,6 +655,55 @@ class _ConfigField {
   _ConfigField(this.key, this.label, this.hint, this.type);
 }
 
+/// method_type별 편집 필드 정의 (톱레벨 헬퍼 - 메인 화면/프리셋 다이얼로그 공용)
+List<_ConfigField> _configFieldsFor(String methodType) {
+  switch (methodType) {
+    case 'GPS':
+    case 'GPS_QR':
+      return [
+        _ConfigField('latitude', '위도', '예: 37.5665', _FieldType.double_),
+        _ConfigField('longitude', '경도', '예: 126.9780', _FieldType.double_),
+        _ConfigField('radius_meters', '반경 (m)', '미터 단위', _FieldType.int_),
+      ];
+    case 'WIFI':
+    case 'WIFI_QR':
+      return [
+        _ConfigField('ssid', 'WiFi SSID', '네트워크 이름', _FieldType.string),
+        _ConfigField('bssid', 'WiFi BSSID', 'MAC 주소', _FieldType.string),
+      ];
+    case 'NFC':
+      return [
+        _ConfigField('tag_id', 'NFC 태그 ID', '태그 고유 ID', _FieldType.string),
+      ];
+    case 'NFC_GPS':
+      return [
+        _ConfigField('tag_id', 'NFC 태그 ID', '태그 고유 ID', _FieldType.string),
+        _ConfigField('latitude', '위도', '예: 37.5665', _FieldType.double_),
+        _ConfigField('longitude', '경도', '예: 126.9780', _FieldType.double_),
+        _ConfigField('radius_meters', '반경 (m)', '미터 단위', _FieldType.int_),
+      ];
+    case 'BEACON':
+      return [
+        _ConfigField('uuid', 'Beacon UUID', 'UUID', _FieldType.string),
+        _ConfigField('major', 'Major', '정수값', _FieldType.int_),
+        _ConfigField('minor', 'Minor', '정수값', _FieldType.int_),
+        _ConfigField('rssi_threshold', 'RSSI 임계값', '음수 (예: -70)', _FieldType.double_),
+      ];
+    case 'BEACON_GPS':
+      return [
+        _ConfigField('uuid', 'Beacon UUID', 'UUID', _FieldType.string),
+        _ConfigField('major', 'Major', '정수값', _FieldType.int_),
+        _ConfigField('minor', 'Minor', '정수값', _FieldType.int_),
+        _ConfigField('rssi_threshold', 'RSSI 임계값', '음수 (예: -70)', _FieldType.double_),
+        _ConfigField('latitude', '위도', '예: 37.5665', _FieldType.double_),
+        _ConfigField('longitude', '경도', '예: 126.9780', _FieldType.double_),
+        _ConfigField('radius_meters', '반경 (m)', '미터 단위', _FieldType.int_),
+      ];
+    default:
+      return [];
+  }
+}
+
 /// 인라인 설정값 편집 위젯
 class _MethodConfigEditor extends StatefulWidget {
   final ApiService apiService; // 프리셋 API 호출용
@@ -784,18 +788,57 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
     widget.onSave(newConfig);
   }
 
+  /// 복합 메서드를 부품 method_type 리스트로 분해
+  /// 예: NFC_GPS → [NFC, GPS], BEACON_GPS → [BEACON, GPS]
+  /// QR 단독 enum이 없는 경우(GPS_QR/WIFI_QR)는 비-QR 부품만 매핑
+  List<String> _getMethodParts(String methodType) {
+    switch (methodType) {
+      case 'NFC_GPS':
+        return ['NFC', 'GPS'];
+      case 'BEACON_GPS':
+        return ['BEACON', 'GPS'];
+      case 'GPS_QR':
+        return ['GPS'];
+      case 'WIFI_QR':
+        return ['WIFI'];
+      default:
+        // 단일 메서드 (GPS, WIFI, NFC, BEACON 등)는 자기 자신
+        return [methodType];
+    }
+  }
+
+  /// 부품 method_type의 한글 표시명 반환 (버튼 라벨/다이얼로그 타이틀용)
+  String _partDisplayName(String partType) {
+    switch (partType) {
+      case 'GPS':
+        return 'GPS';
+      case 'WIFI':
+        return 'WiFi';
+      case 'NFC':
+        return 'NFC';
+      case 'BEACON':
+        return 'Beacon';
+      default:
+        return partType;
+    }
+  }
+
   /// 프리셋 불러오기 다이얼로그
-  /// 같은 method_type의 프리셋 목록을 보여주고, 선택 시 입력 필드를 자동으로 채움
-  Future<void> _showLoadPresetDialog() async {
+  /// partType의 프리셋 목록을 보여주고, 선택 시 partType의 필드들에만 값을 채움
+  Future<void> _showLoadPresetDialog(String partType) async {
+    final partLabel = _partDisplayName(partType);
+    // 부품 타입에 해당하는 입력 필드 목록 (현재 폼의 _controllers에 없는 key는 무시)
+    final fields = _configFieldsFor(partType);
+
     List<VerificationPreset> presets = [];
     try {
       presets = await widget.apiService.getPresets(
-        methodType: widget.method.methodType,
+        methodType: partType,
       );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('프리셋을 불러올 수 없습니다')),
+          SnackBar(content: Text('$partLabel 프리셋을 불러올 수 없습니다')),
         );
       }
       return;
@@ -806,7 +849,7 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
     if (presets.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${widget.method.displayName} 프리셋이 없습니다'),
+          content: Text('$partLabel 프리셋이 없습니다'),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -816,7 +859,7 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
     final selected = await showDialog<VerificationPreset>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('${widget.method.displayName} 프리셋 선택'),
+        title: Text('$partLabel 프리셋 선택'),
         content: SizedBox(
           width: 480,
           height: 360,
@@ -852,19 +895,20 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
 
     if (selected == null || !mounted) return;
 
-    // 선택된 프리셋 값으로 컨트롤러 채우기
+    // 선택된 프리셋 값으로 partType의 필드만 채움
+    // 현재 폼의 _controllers에 해당 key가 존재하는 경우에만 반영 (없으면 무시)
     setState(() {
-      for (final field in widget.fields) {
+      for (final field in fields) {
         final value = selected.configData[field.key];
-        if (value != null) {
-          _controllers[field.key]?.text = value.toString();
-        }
+        if (value == null) continue;
+        if (!_controllers.containsKey(field.key)) continue;
+        _controllers[field.key]!.text = value.toString();
       }
     });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('"${selected.name}" 프리셋을 불러왔습니다 (저장 버튼을 눌러 적용)'),
+          content: Text('"${selected.name}" $partLabel 프리셋을 불러왔습니다 (저장 버튼을 눌러 적용)'),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -979,6 +1023,41 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
     }
   }
 
+  /// 부품 수에 따라 "프리셋 불러오기" 버튼 위젯 리스트 생성
+  /// - 단일(parts=1): 라벨 "프리셋 불러오기" 버튼 1개 (기존 동작 유지)
+  /// - 복합(parts>=2): 부품별 "NFC 프리셋", "GPS 프리셋" 등 N개 버튼
+  List<Widget> _buildPresetLoadButtons() {
+    final parts = _getMethodParts(widget.method.methodType);
+    if (parts.length <= 1) {
+      // 단일 메서드: 기존 동작 유지 (자기 자신을 partType으로 사용)
+      final partType = parts.isNotEmpty ? parts.first : widget.method.methodType;
+      return [
+        OutlinedButton.icon(
+          icon: const Icon(Icons.bookmark_outline, size: 18),
+          label: const Text('프리셋 불러오기'),
+          onPressed: () => _showLoadPresetDialog(partType),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: widget.color,
+            side: BorderSide(color: widget.color.withOpacity(0.6)),
+          ),
+        ),
+      ];
+    }
+    // 복합 메서드: 부품별 버튼 N개
+    return parts.map((partType) {
+      final label = '${_partDisplayName(partType)} 프리셋';
+      return OutlinedButton.icon(
+        icon: const Icon(Icons.bookmark_outline, size: 18),
+        label: Text(label),
+        onPressed: () => _showLoadPresetDialog(partType),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: widget.color,
+          side: BorderSide(color: widget.color.withOpacity(0.6)),
+        ),
+      );
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1051,16 +1130,8 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
                     side: BorderSide(color: widget.color),
                   ),
                 ),
-              // 프리셋 불러오기
-              OutlinedButton.icon(
-                icon: const Icon(Icons.bookmark_outline, size: 18),
-                label: const Text('프리셋 불러오기'),
-                onPressed: _showLoadPresetDialog,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: widget.color,
-                  side: BorderSide(color: widget.color.withOpacity(0.6)),
-                ),
-              ),
+              // 프리셋 불러오기 (복합 메서드는 부품별 버튼으로 분리)
+              ..._buildPresetLoadButtons(),
               // 현재 값을 프리셋으로 저장
               OutlinedButton.icon(
                 icon: const Icon(Icons.bookmark_add_outlined, size: 18),

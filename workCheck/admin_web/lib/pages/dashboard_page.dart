@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import 'verification_page.dart';
 import 'attendance_page.dart';
+import 'verification_presets_page.dart';
 
-/// 대시보드 - MVP 시연용 간략화 (인증 설정 + 출퇴근 기록만)
+/// 대시보드 - MVP 시연용 간략화 (인증 설정 + 인증 프리셋 + 출퇴근 기록)
 class DashboardPage extends StatefulWidget {
   final ApiService apiService;
   const DashboardPage({super.key, required this.apiService});
@@ -14,6 +15,20 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   int _selectedIndex = 0;
+
+  /// 사이드바 인덱스에 해당하는 페이지 반환
+  Widget _buildPage() {
+    switch (_selectedIndex) {
+      case 0:
+        return VerificationPage(apiService: widget.apiService);
+      case 1:
+        return VerificationPresetsPage(apiService: widget.apiService);
+      case 2:
+        return AttendancePage(apiService: widget.apiService);
+      default:
+        return VerificationPage(apiService: widget.apiService);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -63,6 +78,10 @@ class _DashboardPageState extends State<DashboardPage> {
                 label: Text('인증 설정'),
               ),
               NavigationRailDestination(
+                icon: Icon(Icons.bookmark),
+                label: Text('인증 프리셋'),
+              ),
+              NavigationRailDestination(
                 icon: Icon(Icons.history),
                 label: Text('출퇴근 기록'),
               ),
@@ -70,11 +89,7 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
 
           // 메인 콘텐츠
-          Expanded(
-            child: _selectedIndex == 0
-                ? VerificationPage(apiService: widget.apiService)
-                : AttendancePage(apiService: widget.apiService),
-          ),
+          Expanded(child: _buildPage()),
         ],
       ),
     );

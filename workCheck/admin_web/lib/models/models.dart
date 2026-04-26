@@ -214,6 +214,43 @@ class AttendanceEntry {
   }
 }
 
+/// 인증 프리셋 모델 (NFC/WiFi/GPS/Beacon 등 자주 쓰는 인증값을 이름 붙여 저장)
+/// JSON은 snake_case (백엔드 JacksonConfig SNAKE_CASE 전략)
+class VerificationPreset {
+  final int id;
+  final String name; // 프리셋 이름
+  final String methodType; // 'NFC' / 'WIFI' / 'GPS' / 'BEACON' 등
+  final Map<String, dynamic> configData; // method_type별 설정값 (자유 JSONB)
+  final String? memo; // 부가 메모
+  final String createdAt; // ISO-8601
+  final String updatedAt; // ISO-8601
+
+  VerificationPreset({
+    required this.id,
+    required this.name,
+    required this.methodType,
+    required this.configData,
+    this.memo,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  /// JSON → 객체 (snake_case 키 매핑)
+  factory VerificationPreset.fromJson(Map<String, dynamic> json) {
+    return VerificationPreset(
+      id: json['id'] as int,
+      name: json['name'] as String,
+      methodType: json['method_type'] as String,
+      configData: Map<String, dynamic>.from(
+        (json['config_data'] ?? <String, dynamic>{}) as Map,
+      ),
+      memo: json['memo'] as String?,
+      createdAt: json['created_at'] as String? ?? '',
+      updatedAt: json['updated_at'] as String? ?? '',
+    );
+  }
+}
+
 /// 직원 모델 (회사코드, 사원번호, 근무지 정보 포함)
 class Employee {
   final int id;

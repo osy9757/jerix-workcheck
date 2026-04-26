@@ -669,6 +669,7 @@ class _VerificationPageState extends State<VerificationPage> {
           if (isExpanded)
             _MethodConfigEditor(
               key: ValueKey('${method.methodType}-${_selectedUser?.id ?? 0}'),
+              apiService: widget.apiService,
               method: method,
               fields: fields,
               hasQr: _hasQr(method.methodType),
@@ -701,6 +702,7 @@ class _ConfigField {
 
 /// 인라인 설정값 편집 위젯
 class _MethodConfigEditor extends StatefulWidget {
+  final ApiService apiService; // 프리셋 API 호출용
   final VerificationMethod method;
   final List<_ConfigField> fields;
   final bool hasQr;
@@ -713,6 +715,7 @@ class _MethodConfigEditor extends StatefulWidget {
 
   const _MethodConfigEditor({
     super.key,
+    required this.apiService,
     required this.method,
     required this.fields,
     required this.hasQr,
@@ -781,6 +784,201 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
     widget.onSave(newConfig);
   }
 
+  /// 프리셋 불러오기 다이얼로그
+  /// 같은 method_type의 프리셋 목록을 보여주고, 선택 시 입력 필드를 자동으로 채움
+  Future<void> _showLoadPresetDialog() async {
+    List<VerificationPreset> presets = [];
+    try {
+      presets = await widget.apiService.getPresets(
+        methodType: widget.method.methodType,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('프리셋을 불러올 수 없습니다')),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    if (presets.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${widget.method.displayName} 프리셋이 없습니다'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final selected = await showDialog<VerificationPreset>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${widget.method.displayName} 프리셋 선택'),
+        content: SizedBox(
+          width: 480,
+          height: 360,
+          child: ListView.separated(
+            itemCount: presets.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final p = presets[index];
+              return ListTile(
+                title: Text(p.name),
+                subtitle: Text(
+                  p.memo ?? p.configData.entries
+                      .map((e) => '${e.key}: ${e.value}')
+                      .join(' / '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(ctx, p),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
+        ],
+      ),
+    );
+
+    if (selected == null || !mounted) return;
+
+    // 선택된 프리셋 값으로 컨트롤러 채우기
+    setState(() {
+      for (final field in widget.fields) {
+        final value = selected.configData[field.key];
+        if (value != null) {
+          _controllers[field.key]?.text = value.toString();
+        }
+      }
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"${selected.name}" 프리셋을 불러왔습니다 (저장 버튼을 눌러 적용)'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  /// 현재 입력값을 프리셋으로 저장
+  Future<void> _showSaveAsPresetDialog() async {
+    final nameCtrl = TextEditingController();
+    final memoCtrl = TextEditingController();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('${widget.method.displayName} 프리셋으로 저장'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: '이름 *',
+                  hintText: '예: 사무실 정문 NFC',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: memoCtrl,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: '메모',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: widget.color,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('저장'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    final name = nameCtrl.text.trim();
+    if (name.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('이름을 입력하세요')),
+        );
+      }
+      return;
+    }
+
+    // 현재 입력값을 config로 변환 (프리셋용 - 위치 좌표는 제외)
+    final config = <String, dynamic>{};
+    for (final field in widget.fields) {
+      // GPS 좌표는 근무지 종속이므로 프리셋에 저장하지 않음
+      if (field.key == 'latitude' || field.key == 'longitude') continue;
+      final text = _controllers[field.key]?.text.trim() ?? '';
+      if (text.isEmpty) continue;
+      switch (field.type) {
+        case _FieldType.int_:
+          config[field.key] = int.tryParse(text) ?? text;
+          break;
+        case _FieldType.double_:
+          config[field.key] = double.tryParse(text) ?? text;
+          break;
+        case _FieldType.string:
+          config[field.key] = text;
+          break;
+      }
+    }
+
+    try {
+      await widget.apiService.createPreset(
+        name: name,
+        methodType: widget.method.methodType,
+        configData: config,
+        memo: memoCtrl.text.trim().isEmpty ? null : memoCtrl.text.trim(),
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('"$name" 프리셋이 저장되었습니다'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('프리셋 저장에 실패했습니다')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -837,8 +1035,11 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
           ),
           const SizedBox(height: 16),
 
-          // 버튼 행
-          Row(
+          // 버튼 행 (좌측: QR/프리셋 / 우측: 복귀/저장)
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               if (widget.hasQr && widget.onShowQr != null)
                 OutlinedButton.icon(
@@ -850,17 +1051,34 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
                     side: BorderSide(color: widget.color),
                   ),
                 ),
-              const Spacer(),
+              // 프리셋 불러오기
+              OutlinedButton.icon(
+                icon: const Icon(Icons.bookmark_outline, size: 18),
+                label: const Text('프리셋 불러오기'),
+                onPressed: _showLoadPresetDialog,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: widget.color,
+                  side: BorderSide(color: widget.color.withOpacity(0.6)),
+                ),
+              ),
+              // 현재 값을 프리셋으로 저장
+              OutlinedButton.icon(
+                icon: const Icon(Icons.bookmark_add_outlined, size: 18),
+                label: const Text('프리셋으로 저장'),
+                onPressed: _showSaveAsPresetDialog,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: widget.color,
+                  side: BorderSide(color: widget.color.withOpacity(0.6)),
+                ),
+              ),
               // 기본값으로 복귀 (유저 모드에서 오버라이드 있을 때만)
-              if (widget.onReset != null) ...[
+              if (widget.onReset != null)
                 TextButton.icon(
                   icon: const Icon(Icons.restore, size: 18),
                   label: const Text('기본값 복귀'),
                   onPressed: widget.onReset,
                   style: TextButton.styleFrom(foregroundColor: Colors.orange),
                 ),
-                const SizedBox(width: 8),
-              ],
               ElevatedButton.icon(
                 icon: const Icon(Icons.save, size: 18),
                 label: const Text('저장'),

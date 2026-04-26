@@ -157,7 +157,17 @@ INSERT INTO verification_configs (verification_method_id, config_data) VALUES
     (18, '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80, "radius_meters": 200}');
 
 -- ============================================
--- 7. 시퀀스 리셋
+-- 7. 인증 프리셋 (관리자 웹 카탈로그 - 자주 쓰는 값 저장)
+-- ============================================
+INSERT INTO verification_presets (id, name, method_type, config_data, memo) VALUES
+    (1, '사무실 정문 NFC',  'NFC',    '{"tag_id": "04:E9:D8:3E:C8:2A:81"}',                                                                  '을지로지점 정문 NFC 태그'),
+    (2, '마포 NFC 백업',    'NFC',    '{"tag_id": "04:AA:BB:CC:DD:EE:77"}',                                                                  '마포지점 보조 태그'),
+    (3, '회사 WiFi 5G',     'WIFI',   '{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}',                                                         '종합테스트센터 WiFi'),
+    (4, '비콘1 (강남삼성)',  'BEACON', '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}', '비콘1 테스트지점'),
+    (5, '비콘2 (강남봉은사)','BEACON', '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}', '비콘2 테스트지점');
+
+-- ============================================
+-- 8. 시퀀스 리셋
 -- ============================================
 SELECT setval('companies_id_seq', (SELECT MAX(id) FROM companies));
 SELECT setval('workplaces_id_seq', (SELECT MAX(id) FROM workplaces));
@@ -165,3 +175,4 @@ SELECT setval('users_id_seq', (SELECT MAX(id) FROM users));
 SELECT setval('admin_users_id_seq', (SELECT MAX(id) FROM admin_users));
 SELECT setval('verification_methods_id_seq', (SELECT MAX(id) FROM verification_methods));
 SELECT setval('verification_configs_id_seq', (SELECT MAX(id) FROM verification_configs));
+SELECT setval('verification_presets_id_seq', (SELECT MAX(id) FROM verification_presets));

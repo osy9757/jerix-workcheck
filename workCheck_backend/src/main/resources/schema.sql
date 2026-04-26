@@ -114,3 +114,20 @@ CREATE INDEX idx_attendance_user_recorded
 -- 인덱스: 오늘의 출퇴근 상태 조회 (GET /api/v1/attendance/today)
 CREATE INDEX idx_attendance_user_type_recorded
     ON attendance_records (user_id, type, recorded_at DESC);
+
+-- 9. 인증 프리셋 (글로벌 카탈로그)
+-- 자주 쓰이는 NFC/WiFi/GPS/Beacon 설정값을 이름 붙여 저장하여 재사용
+-- 회사/근무지 종속 아님 - 관리자가 카탈로그처럼 관리
+CREATE TABLE verification_presets (
+    id          BIGSERIAL PRIMARY KEY,
+    name        VARCHAR(100)     NOT NULL,
+    method_type method_type_enum NOT NULL,
+    config_data JSONB            NOT NULL DEFAULT '{}',
+    memo        TEXT,
+    created_at  TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ      NOT NULL DEFAULT NOW()
+);
+
+-- 인덱스: 인증 방법별 프리셋 필터링
+CREATE INDEX idx_verification_presets_method_type
+    ON verification_presets (method_type);

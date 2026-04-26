@@ -230,6 +230,68 @@ class ApiService {
     });
   }
 
+  // --- 인증 프리셋 (verification-presets) ---
+
+  /// 프리셋 목록 조회 (methodType 생략 시 전체)
+  /// 백엔드 컨트롤러는 카멜케이스 ?methodType=NFC 형식 사용
+  Future<List<VerificationPreset>> getPresets({String? methodType}) async {
+    final response = await _dio.get(
+      '/verification-presets',
+      queryParameters: {
+        if (methodType != null && methodType.isNotEmpty) 'methodType': methodType,
+      },
+    );
+    // 응답은 배열 (래퍼 없음)
+    final list = (response.data as List)
+        .map((p) => VerificationPreset.fromJson(p as Map<String, dynamic>))
+        .toList();
+    return list;
+  }
+
+  /// 프리셋 단건 조회
+  Future<VerificationPreset> getPreset(int id) async {
+    final response = await _dio.get('/verification-presets/$id');
+    return VerificationPreset.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// 프리셋 생성 (POST) - 응답 201 + 단일 객체
+  Future<VerificationPreset> createPreset({
+    required String name,
+    required String methodType,
+    required Map<String, dynamic> configData,
+    String? memo,
+  }) async {
+    final response = await _dio.post('/verification-presets', data: {
+      'name': name,
+      'method_type': methodType,
+      'config_data': configData,
+      if (memo != null) 'memo': memo,
+    });
+    return VerificationPreset.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// 프리셋 수정 (PUT) - 전체 덮어쓰기 (PATCH 아님)
+  Future<VerificationPreset> updatePreset(
+    int id, {
+    required String name,
+    required String methodType,
+    required Map<String, dynamic> configData,
+    String? memo,
+  }) async {
+    final response = await _dio.put('/verification-presets/$id', data: {
+      'name': name,
+      'method_type': methodType,
+      'config_data': configData,
+      if (memo != null) 'memo': memo,
+    });
+    return VerificationPreset.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// 프리셋 삭제 (DELETE) - 204 No Content
+  Future<void> deletePreset(int id) async {
+    await _dio.delete('/verification-presets/$id');
+  }
+
   // --- QR 코드 ---
 
   /// 근무지 QR 코드 조회

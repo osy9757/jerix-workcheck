@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'services/api_service.dart';
-import 'pages/login_page.dart';
 import 'pages/dashboard_page.dart';
 
-/// WorkCheck 관리자 웹 앱 엔트리포인트
+/// WorkCheck 관리자 웹 앱 엔트리포인트 (MVP 시연용 - 로그인 없음)
 void main() {
   runApp(const AdminWebApp());
 }
@@ -24,12 +23,8 @@ class AdminWebApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      // 로그인 상태에 따라 초기 화면 결정
-      initialRoute: apiService.isLoggedIn ? '/dashboard' : '/login',
-      routes: {
-        '/login': (_) => LoginPage(apiService: apiService),
-        '/dashboard': (_) => DashboardPage(apiService: apiService),
-      },
+      // MVP: 로그인 없이 바로 대시보드
+      home: DashboardPage(apiService: apiService),
     );
   }
 }

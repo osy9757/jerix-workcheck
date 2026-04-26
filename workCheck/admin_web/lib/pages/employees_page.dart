@@ -366,7 +366,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
   }
 }
 
-/// 유저별 인증 오버라이드 다이얼로그 (StatefulWidget)
+/// 유저별 인증 오버라이드 다이얼로그 (근무지 무관, 8가지 인증 방법 모두 자유 편집)
 class _OverrideDialog extends StatefulWidget {
   final Employee employee;
   final List<VerificationMethod> methods;
@@ -386,49 +386,167 @@ class _OverrideDialogState extends State<_OverrideDialog> {
   late List<VerificationMethod> _methods; // 유저의 인증 방법 목록
   bool _saving = false; // 저장 중 여부
 
+  // 인증 방법별 편집 컨트롤러 저장 (methodType → field → controller)
+  final Map<String, Map<String, TextEditingController>> _controllers = {};
+  // 인증 방법별 enabled 상태
+  final Map<String, bool> _enabledMap = {};
+
   @override
   void initState() {
     super.initState();
     _methods = List.from(widget.methods);
+    _initControllers();
   }
 
-  /// 개별 토글 오버라이드
-  Future<void> _toggleOverride(VerificationMethod method) async {
+  /// 각 인증 방법별 config 편집 컨트롤러 초기화
+  void _initControllers() {
+    for (final method in _methods) {
+      _enabledMap[method.methodType] = method.enabled;
+      final fields = _getFieldsFor(method.methodType);
+      _controllers[method.methodType] = {
+        for (final field in fields)
+          field: TextEditingController(
+            text: method.config[field]?.toString() ?? '',
+          ),
+      };
+    }
+  }
+
+  @override
+  void dispose() {
+    // 컨트롤러 해제
+    for (final group in _controllers.values) {
+      for (final c in group.values) {
+        c.dispose();
+      }
+    }
+    super.dispose();
+  }
+
+  /// 인증 방법별 설정 필드 목록 (CLAUDE.md 인증방법표 기반)
+  List<String> _getFieldsFor(String methodType) {
+    switch (methodType) {
+      case 'GPS':
+        return ['latitude', 'longitude', 'radius_meters'];
+      case 'GPS_QR':
+        return ['latitude', 'longitude', 'radius_meters', 'qr_code'];
+      case 'WIFI':
+        return ['ssid', 'bssid'];
+      case 'WIFI_QR':
+        return ['ssid', 'bssid', 'qr_code'];
+      case 'NFC':
+        return ['tag_id'];
+      case 'NFC_GPS':
+        return ['tag_id', 'latitude', 'longitude', 'radius_meters'];
+      case 'BEACON':
+        return ['uuid', 'major', 'minor', 'rssi_threshold'];
+      case 'BEACON_GPS':
+        return ['uuid', 'major', 'minor', 'rssi_threshold', 'latitude', 'longitude', 'radius_meters'];
+      default:
+        return [];
+    }
+  }
+
+  /// 숫자로 파싱해야 하는 필드 여부
+  bool _isNumericField(String field) {
+    return field == 'latitude' ||
+        field == 'longitude' ||
+        field == 'radius_meters' ||
+        field == 'major' ||
+        field == 'minor' ||
+        field == 'rssi_threshold';
+  }
+
+  /// 필드명 한글 라벨
+  String _fieldLabel(String field) {
+    switch (field) {
+      case 'latitude': return '위도';
+      case 'longitude': return '경도';
+      case 'radius_meters': return '반경(m)';
+      case 'qr_code': return 'QR 코드';
+      case 'ssid': return 'WiFi SSID';
+      case 'bssid': return 'WiFi BSSID';
+      case 'tag_id': return 'NFC 태그 ID';
+      case 'uuid': return 'Beacon UUID';
+      case 'major': return 'Major';
+      case 'minor': return 'Minor';
+      case 'rssi_threshold': return 'RSSI 임계값';
+      default: return field;
+    }
+  }
+
+  /// 컨트롤러 값을 config Map으로 변환 (숫자 필드는 파싱)
+  Map<String, dynamic> _buildConfig(String methodType) {
+    final ctrls = _controllers[methodType] ?? {};
+    final result = <String, dynamic>{};
+    ctrls.forEach((field, ctrl) {
+      final text = ctrl.text.trim();
+      if (text.isEmpty) return;
+      if (_isNumericField(field)) {
+        if (field == 'major' || field == 'minor' || field == 'rssi_threshold' || field == 'radius_meters') {
+          final n = int.tryParse(text);
+          if (n != null) result[field] = n;
+        } else {
+          final d = double.tryParse(text);
+          if (d != null) result[field] = d;
+        }
+      } else {
+        result[field] = text;
+      }
+    });
+    return result;
+  }
+
+  /// 인증 방법 저장 (enabled + config)
+  Future<void> _saveMethod(String methodType) async {
     setState(() => _saving = true);
     try {
+      final config = _buildConfig(methodType);
       await widget.apiService.updateUserVerificationOverride(
         widget.employee.id,
-        methodType: method.methodType,
-        isEnabled: !method.enabled,
-        config: method.config,
+        methodType: methodType,
+        isEnabled: _enabledMap[methodType] ?? false,
+        config: config,
       );
-      // 목록 새로고침
-      final updated = await widget.apiService
-          .getUserVerificationMethods(widget.employee.id);
-      if (mounted) setState(() { _methods = updated; _saving = false; });
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${_displayName(methodType)} 저장 완료')),
+        );
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('설정 변경에 실패했습니다')),
+          const SnackBar(content: Text('저장에 실패했습니다')),
         );
       }
     }
   }
 
-  /// 오버라이드 삭제 (근무지 기본값으로 복귀)
-  Future<void> _resetToDefault(VerificationMethod method) async {
+  /// 오버라이드 삭제 (기본값으로 복귀)
+  Future<void> _resetMethod(String methodType) async {
     setState(() => _saving = true);
     try {
       await widget.apiService.deleteUserVerificationOverride(
-        widget.employee.id, method.methodType,
+        widget.employee.id, methodType,
       );
+      // 새로고침
       final updated = await widget.apiService
           .getUserVerificationMethods(widget.employee.id);
       if (mounted) {
-        setState(() { _methods = updated; _saving = false; });
+        setState(() {
+          _methods = updated;
+          _controllers.forEach((_, group) {
+            for (final c in group.values) c.dispose();
+          });
+          _controllers.clear();
+          _enabledMap.clear();
+          _initControllers();
+          _saving = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('기본값으로 복귀되었습니다')),
+          SnackBar(content: Text('${_displayName(methodType)} 기본값으로 복귀')),
         );
       }
     } catch (e) {
@@ -481,8 +599,7 @@ class _OverrideDialogState extends State<_OverrideDialog> {
     return AlertDialog(
       title: Row(
         children: [
-          Text('${widget.employee.name} - 인증 설정'),
-          const Spacer(),
+          Expanded(child: Text('${widget.employee.name} - 인증 설정')),
           if (widget.employee.workplaceName != null)
             Chip(
               label: Text(widget.employee.workplaceName!),
@@ -491,53 +608,87 @@ class _OverrideDialogState extends State<_OverrideDialog> {
         ],
       ),
       content: SizedBox(
-        width: 500,
-        height: 400,
+        width: 560,
+        height: 520,
         child: _saving
             ? const Center(child: CircularProgressIndicator())
-            : _methods.isEmpty
-                ? const Center(child: Text('근무지가 배정되지 않아 인증 방법이 없습니다'))
-                : ListView.separated(
-                    itemCount: _methods.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final method = _methods[index];
-                      return ListTile(
-                        leading: Icon(
-                          _getMethodIcon(method.methodType),
-                          color: method.enabled
-                              ? const Color(0xFF2DDAA9)
-                              : Colors.grey,
-                        ),
-                        title: Text(_displayName(method.methodType)),
-                        subtitle: Text(
-                          method.config.entries
-                              .map((e) => '${e.key}: ${e.value}')
-                              .join(', '),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // ON/OFF 토글
-                            Switch(
-                              value: method.enabled,
-                              onChanged: (_) => _toggleOverride(method),
-                              activeColor: const Color(0xFF2DDAA9),
+            : ListView.separated(
+                itemCount: _methods.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final method = _methods[index];
+                  final enabled = _enabledMap[method.methodType] ?? false;
+                  final fields = _getFieldsFor(method.methodType);
+                  return ExpansionTile(
+                    leading: Icon(
+                      _getMethodIcon(method.methodType),
+                      color: enabled ? const Color(0xFF2DDAA9) : Colors.grey,
+                    ),
+                    title: Text(_displayName(method.methodType)),
+                    subtitle: Text(
+                      (method.isOverridden ?? false) ? '개별 설정' : '기본값',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: (method.isOverridden ?? false)
+                            ? const Color(0xFF2DDAA9)
+                            : Colors.grey[500],
+                      ),
+                    ),
+                    trailing: Switch(
+                      value: enabled,
+                      onChanged: (v) => setState(() => _enabledMap[method.methodType] = v),
+                      activeColor: const Color(0xFF2DDAA9),
+                    ),
+                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    children: [
+                      // config 편집 필드
+                      ...fields.map((field) {
+                        final ctrl = _controllers[method.methodType]?[field];
+                        if (ctrl == null) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: TextField(
+                            controller: ctrl,
+                            keyboardType: _isNumericField(field)
+                                ? const TextInputType.numberWithOptions(decimal: true, signed: true)
+                                : TextInputType.text,
+                            decoration: InputDecoration(
+                              labelText: _fieldLabel(field),
+                              border: const OutlineInputBorder(),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10,
+                              ),
                             ),
-                            // 기본값 복귀 버튼
-                            IconButton(
-                              icon: const Icon(Icons.restore, size: 20),
-                              tooltip: '기본값으로 복귀',
-                              onPressed: () => _resetToDefault(method),
+                          ),
+                        );
+                      }),
+                      const SizedBox(height: 8),
+                      // 저장 / 기본값 복귀 버튼
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton.icon(
+                            icon: const Icon(Icons.restore, size: 18),
+                            label: const Text('기본값 복귀'),
+                            onPressed: () => _resetMethod(method.methodType),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.save, size: 18),
+                            label: const Text('저장'),
+                            onPressed: () => _saveMethod(method.methodType),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2DDAA9),
+                              foregroundColor: Colors.white,
                             ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                },
+              ),
       ),
       actions: [
         TextButton(

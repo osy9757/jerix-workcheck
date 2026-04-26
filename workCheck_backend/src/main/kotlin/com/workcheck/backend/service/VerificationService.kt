@@ -67,38 +67,48 @@ class VerificationService(
         return toResponse(method)
     }
 
-    // 유저의 실제 인증 방법 조회 (근무지 기본 + 오버라이드 머지)
+    // 유저의 실제 인증 방법 조회 (근무지 무관, 8가지 항상 반환)
     fun getUserVerificationMethods(userId: Long): UserVerificationListResponse {
         val user = userRepository.findById(userId)
             .orElseThrow { IllegalArgumentException("사용자를 찾을 수 없습니다: $userId") }
 
-        val workplace = user.workplace
-            ?: throw IllegalArgumentException("사용자에게 배정된 근무지가 없습니다")
-
-        // 근무지 기본 인증 방법
-        val workplaceMethods = verificationMethodRepository.findAllByWorkplaceId(workplace.id)
-        // 유저 오버라이드
+        // 유저 오버라이드 로드
         val overrides = userVerificationOverrideRepository.findAllByUserId(userId)
         val overrideMap = overrides.associateBy { it.methodType }
 
-        val methods = workplaceMethods.map { method ->
-            val config = verificationConfigRepository.findByVerificationMethodId(method.id)
-            val override = overrideMap[method.methodType]
+        // 근무지 기본값 (배정된 경우에만 참조용 기본값으로 사용)
+        val workplaceMethodMap = user.workplace?.let { wp ->
+            verificationMethodRepository.findAllByWorkplaceId(wp.id).associateBy { it.methodType }
+        } ?: emptyMap()
+
+        // 8가지 메서드 타입 모두 반환 (override > 근무지 기본 > 기본값(disabled/empty))
+        val methods = MethodType.values().map { type ->
+            val override = overrideMap[type]
+            val workplaceMethod = workplaceMethodMap[type]
+            val workplaceConfig = workplaceMethod?.let { verificationConfigRepository.findByVerificationMethodId(it.id) }
 
             if (override != null) {
-                // 오버라이드 사용
+                // 오버라이드 사용 (config 비어 있으면 근무지 기본 config로 fallback)
                 UserVerificationResponse(
-                    methodType = method.methodType.name,
+                    methodType = type.name,
                     enabled = override.isEnabled,
-                    config = override.configData.ifEmpty { config?.configData ?: emptyMap() },
+                    config = override.configData.ifEmpty { workplaceConfig?.configData ?: emptyMap() },
                     isOverridden = true
                 )
-            } else {
+            } else if (workplaceMethod != null) {
                 // 근무지 기본 사용
                 UserVerificationResponse(
-                    methodType = method.methodType.name,
-                    enabled = method.isEnabled,
-                    config = config?.configData ?: emptyMap(),
+                    methodType = type.name,
+                    enabled = workplaceMethod.isEnabled,
+                    config = workplaceConfig?.configData ?: emptyMap(),
+                    isOverridden = false
+                )
+            } else {
+                // 근무지 미배정 & 오버라이드 없음 → 비활성 + 빈 config
+                UserVerificationResponse(
+                    methodType = type.name,
+                    enabled = false,
+                    config = emptyMap(),
                     isOverridden = false
                 )
             }

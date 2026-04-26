@@ -5,7 +5,6 @@ import com.workcheck.backend.dto.response.AppLoginResponse
 import com.workcheck.backend.dto.response.AppUserInfo
 import com.workcheck.backend.repository.CompanyRepository
 import com.workcheck.backend.repository.UserRepository
-import com.workcheck.backend.repository.VerificationMethodRepository
 import com.workcheck.backend.util.JwtUtil
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
@@ -15,7 +14,7 @@ import org.springframework.stereotype.Service
 class AuthService(
     private val companyRepository: CompanyRepository,
     private val userRepository: UserRepository,
-    private val verificationMethodRepository: VerificationMethodRepository,
+    private val verificationService: VerificationService,
     private val jwtUtil: JwtUtil,
     private val passwordEncoder: PasswordEncoder
 ) {
@@ -42,11 +41,11 @@ class AuthService(
         // 5. JWT 토큰 생성
         val token = jwtUtil.generateUserToken(user.id, user.employeeId)
 
-        // 6. 근무지 활성 인증 방법 조회
-        val enabledMethods = user.workplace?.let { workplace ->
-            verificationMethodRepository.findByWorkplaceIdAndIsEnabledTrue(workplace.id)
-                .map { it.methodType.name }
-        } ?: emptyList()
+        // 6. 활성 인증 방법 조회 (근무지 기본값 + 유저 오버라이드 머지)
+        val enabledMethods = verificationService.getUserVerificationMethods(user.id)
+            .methods
+            .filter { it.enabled }
+            .map { it.methodType }
 
         return AppLoginResponse(
             token = token,

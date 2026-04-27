@@ -211,17 +211,26 @@ class VerificationService(
         return result
     }
 
-    // WiFi 검증: SSID 또는 BSSID 매칭
+    // SSID 정규화: 앞뒤 공백/큰따옴표 제거 (대소문자는 SSID 표준상 그대로 유지)
+    private fun normalizeSsid(value: String?): String? =
+        value?.trim()?.removeSurrounding("\"")?.takeIf { it.isNotEmpty() }
+
+    // BSSID 정규화: 공백/콜론/하이픈 구분자 제거 후 소문자 (ignoreCase 비교 용)
+    private fun normalizeBssid(value: String?): String? =
+        value?.trim()?.replace(Regex("[:\\-\\s]"), "")?.lowercase()?.takeIf { it.isNotEmpty() }
+
+    // WiFi 검증: SSID 또는 BSSID 매칭 (정규화 후 비교)
     private fun verifyWifi(data: Map<String, Any>, config: Map<String, Any>): Boolean {
-        val dataSsid = data["ssid"] as? String
-        val dataBssid = data["bssid"] as? String
-        val configSsid = config["ssid"] as? String
-        val configBssid = config["bssid"] as? String
+        val dataSsid = normalizeSsid(data["ssid"] as? String)
+        val dataBssid = normalizeBssid(data["bssid"] as? String)
+        val configSsid = normalizeSsid(config["ssid"] as? String)
+        val configBssid = normalizeBssid(config["bssid"] as? String)
 
         logger.info("[WiFi] 앱={ssid=$dataSsid, bssid=$dataBssid}, 설정={ssid=$configSsid, bssid=$configBssid}")
 
-        val result = if (configBssid != null && configBssid.isNotEmpty() && dataBssid != null) {
-            val matched = configBssid.equals(dataBssid, ignoreCase = true)
+        val result = if (!configBssid.isNullOrEmpty() && dataBssid != null) {
+            // 이미 lowercase + 구분자 제거 정규화 됨 → strict equals
+            val matched = configBssid == dataBssid
             logger.info("[WiFi] BSSID 비교: $dataBssid vs $configBssid → ${if (matched) "✅통과" else "❌실패"}")
             matched
         } else if (configSsid != null && dataSsid != null) {

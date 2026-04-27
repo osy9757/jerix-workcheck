@@ -200,8 +200,9 @@ class VerificationService(
     ): Boolean {
         val dataLat = (data["latitude"] as? Number)?.toDouble() ?: return false
         val dataLon = (data["longitude"] as? Number)?.toDouble() ?: return false
-        val targetLat = workplaceLat ?: (config["latitude"] as? Number)?.toDouble() ?: return false
-        val targetLon = workplaceLon ?: (config["longitude"] as? Number)?.toDouble() ?: return false
+        // config의 lat/lng가 있으면 우선 사용, 없을 때만 근무지 컬럼 좌표로 폴백
+        val targetLat = (config["latitude"] as? Number)?.toDouble() ?: workplaceLat ?: return false
+        val targetLon = (config["longitude"] as? Number)?.toDouble() ?: workplaceLon ?: return false
         val radiusMeters = (config["radius_meters"] as? Number)?.toDouble() ?: return false
 
         val distance = haversineDistance(dataLat, dataLon, targetLat, targetLon)

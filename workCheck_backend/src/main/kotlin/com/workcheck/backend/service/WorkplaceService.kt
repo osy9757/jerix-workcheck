@@ -188,10 +188,10 @@ class WorkplaceService(
             val config = verificationConfigRepository.findByVerificationMethodId(method.id)
             if (config != null) {
                 val configData = config.configData.toMutableMap()
-                // GPS 포함 방법이면 근무지 좌표를 config에 합침
+                // GPS 포함 방법이면 config에 lat/lng가 없을 때만 근무지 좌표로 폴백 (config 우선)
                 if (method.methodType in gpsMethodTypes) {
-                    workplace.latitude?.let { configData["latitude"] = it }
-                    workplace.longitude?.let { configData["longitude"] = it }
+                    if (configData["latitude"] == null) workplace.latitude?.let { configData["latitude"] = it }
+                    if (configData["longitude"] == null) workplace.longitude?.let { configData["longitude"] = it }
                 }
                 configs[method.methodType.name.lowercase()] = configData
             }

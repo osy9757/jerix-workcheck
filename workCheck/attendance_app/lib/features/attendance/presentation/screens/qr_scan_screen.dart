@@ -8,7 +8,7 @@ import '../widgets/qr_scan_overlay.dart';
 /// QR 코드 스캔 화면
 ///
 /// 카메라를 통해 QR 코드를 인식하고 결과를 반환.
-/// 스캔 성공 시 true를 pop하며 종료.
+/// 스캔 성공 시 QR 원본 문자열을 pop하며 종료.
 class QrScanScreen extends StatefulWidget {
   const QrScanScreen({super.key});
 
@@ -29,7 +29,7 @@ class _QrScanScreenState extends State<QrScanScreen> {
   /// QR 코드 감지 콜백
   ///
   /// 이미 처리 중이거나 바코드가 비어있으면 무시.
-  /// 유효한 바코드 감지 시 true를 반환하며 화면 종료.
+  /// 유효한 바코드 감지 시 원본 문자열을 반환하며 화면 종료.
   void _onDetect(BarcodeCapture capture) {
     if (_isProcessing) return;
     final barcodes = capture.barcodes;
@@ -39,7 +39,8 @@ class _QrScanScreenState extends State<QrScanScreen> {
     if (barcode.rawValue == null || barcode.rawValue!.isEmpty) return;
 
     _isProcessing = true;
-    Navigator.of(context).pop(true);
+    // 스캔된 QR 원본 문자열을 호출자에게 반환
+    Navigator.of(context).pop(barcode.rawValue);
   }
 
   @override

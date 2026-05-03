@@ -102,71 +102,86 @@ INSERT INTO verification_methods (id, workplace_id, method_type, is_enabled) VAL
     (18, 11, 'BEACON_GPS', TRUE);
 
 -- ============================================
--- 6. 인증 방법별 설정값 (config_data)
+-- 6. 인증 방법별 설정값 (config_data) — 신 schema (targets[] / *_targets[] / qr_codes[])
 -- ============================================
+-- 신 schema 규칙:
+--   단독 메서드(GPS/WIFI/NFC/BEACON): {"targets":[...]}
+--   복합(GPS_QR/WIFI_QR): {"targets":[...gps|wifi...], "qr_codes":[...]}
+--   복합(NFC_GPS): {"nfc_targets":[...], "gps_targets":[...]}
+--   복합(BEACON_GPS): {"beacon_targets":[...], "gps_targets":[...]}
+-- 좌표가 비어있는 GPS target 은 런타임에 근무지 컬럼 좌표로 폴백됨
 
--- 본사 GPS
+-- 본사 GPS (단일 타겟, 좌표는 근무지 컬럼 폴백)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (1, '{"radius_meters": 200}');
+    (1, '{"targets": [{"radius_meters": 200}]}');
 
--- 강남지점 GPS_QR
+-- 강남지점 GPS_QR (좌표 1개 + QR 코드 1개)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (2, '{"radius_meters": 150, "qr_code": "WC-GN-QR-001"}');
+    (2, '{"targets": [{"radius_meters": 150}], "qr_codes": ["WC-GN-QR-001"]}');
 
--- 여의도지점 WIFI
+-- 여의도지점 WIFI (단일 타겟)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (3, '{"ssid": "WorkCheck-YID", "bssid": "AA:BB:CC:DD:EE:03"}');
+    (3, '{"targets": [{"ssid": "WorkCheck-YID", "bssid": "AA:BB:CC:DD:EE:03"}]}');
 
--- 판교지점 WIFI_QR
+-- 판교지점 WIFI_QR (단일 WiFi + QR)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (4, '{"ssid": "WorkCheck-PG", "bssid": "AA:BB:CC:DD:EE:04", "qr_code": "WC-PG-WQ-001"}');
+    (4, '{"targets": [{"ssid": "WorkCheck-PG", "bssid": "AA:BB:CC:DD:EE:04"}], "qr_codes": ["WC-PG-WQ-001"]}');
 
--- 을지로지점 NFC
+-- 을지로지점 NFC (단일 태그)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (5, '{"tag_id": "04:E9:D8:3E:C8:2A:81"}');
+    (5, '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}]}');
 
--- 종로지점 NFC_GPS
+-- 종로지점 NFC_GPS (NFC 태그 1개 + GPS 1개)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (6, '{"tag_id": "04:E9:D8:3E:C8:2A:81", "radius_meters": 100}');
+    (6, '{"nfc_targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}], "gps_targets": [{"radius_meters": 100}]}');
 
--- 마포지점 NFC
+-- 마포지점 NFC (단일 태그)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (7, '{"tag_id": "04:AA:BB:CC:DD:EE:77"}');
+    (7, '{"targets": [{"tag_id": "04:AA:BB:CC:DD:EE:77"}]}');
 
 -- 비콘1 테스트지점 BEACON
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (8, '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}');
+    (8, '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}]}');
 
 -- 비콘2 테스트지점 BEACON (동일 UUID, 다른 Minor)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (9, '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}');
+    (9, '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}]}');
 
--- 잠실지점 BEACON_GPS
+-- 잠실지점 BEACON_GPS (Beacon 1개 + GPS 1개)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (10, '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80, "radius_meters": 150}');
+    (10, '{"beacon_targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}], "gps_targets": [{"radius_meters": 150}]}');
 
--- 종합테스트센터 (8가지 모두)
+-- 종합테스트센터 (8가지 모두 활성, 일부는 멀티 타겟으로 시연)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (11, '{"radius_meters": 200}'),
-    (12, '{"radius_meters": 200, "qr_code": "WC-ALL-QR-001"}'),
-    (13, '{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}'),
-    (14, '{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": "", "qr_code": "WC-ALL-WQ-001"}'),
-    (15, '{"tag_id": "04:E9:D8:3E:C8:2A:81"}'),
-    (16, '{"tag_id": "04:E9:D8:3E:C8:2A:81", "radius_meters": 200}'),
-    (17, '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}'),
-    (18, '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80, "radius_meters": 200}');
+    -- GPS: 본사+회사 좌표 2개 (멀티)
+    (11, '{"targets": [{"latitude": 37.5665, "longitude": 126.9780, "radius_meters": 200}, {"latitude": 37.541905, "longitude": 126.949614, "radius_meters": 200}]}'),
+    -- GPS_QR: GPS 1개 + QR 코드 2개 (멀티)
+    (12, '{"targets": [{"radius_meters": 200}], "qr_codes": ["WC-ALL-QR-001", "WC-ALL-QR-002"]}'),
+    -- WIFI: SSID 2개 (멀티)
+    (13, '{"targets": [{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}, {"ssid": "WorkCheck-Office", "bssid": ""}]}'),
+    -- WIFI_QR: WiFi 1개 + QR 1개
+    (14, '{"targets": [{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}], "qr_codes": ["WC-ALL-WQ-001"]}'),
+    -- NFC: 태그 2개 (멀티)
+    (15, '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:AA:BB:CC:DD:EE:77"}]}'),
+    -- NFC_GPS: 태그 2개 + GPS 1개
+    (16, '{"nfc_targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:AA:BB:CC:DD:EE:77"}], "gps_targets": [{"radius_meters": 200}]}'),
+    -- BEACON: 비콘 2개 (멀티)
+    (17, '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}, {"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}]}'),
+    -- BEACON_GPS: 비콘 1개 + GPS 1개
+    (18, '{"beacon_targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}], "gps_targets": [{"radius_meters": 200}]}');
 
 -- ============================================
 -- 7. 인증 프리셋 (관리자 웹 카탈로그 - 자주 쓰는 값 저장)
 -- ============================================
+-- 프리셋은 단일 카탈로그 항목 → targets[] 배열에 1개만 담아 관리 (확장성 일관성)
 INSERT INTO verification_presets (id, name, method_type, config_data, memo) VALUES
-    (1, '사무실 정문 NFC',  'NFC',    '{"tag_id": "04:E9:D8:3E:C8:2A:81"}',                                                                  '을지로지점 정문 NFC 태그'),
-    (2, '마포 NFC 백업',    'NFC',    '{"tag_id": "04:AA:BB:CC:DD:EE:77"}',                                                                  '마포지점 보조 태그'),
-    (3, '회사 WiFi 5G',     'WIFI',   '{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}',                                                         '종합테스트센터 WiFi'),
-    (4, '비콘1 (강남삼성)',  'BEACON', '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}', '비콘1 테스트지점'),
-    (5, '비콘2 (강남봉은사)','BEACON', '{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}', '비콘2 테스트지점'),
-    (6, '집',               'GPS',    '{"latitude": 37.5391, "longitude": 126.9453, "radius_meters": 200}',                                  '마포지점 인근'),
-    (7, '회사',             'GPS',    '{"latitude": 37.541905, "longitude": 126.949614, "radius_meters": 200}',                              '회사 위치 GPS');
+    (1, '사무실 정문 NFC',   'NFC',    '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}]}',                                                                          '을지로지점 정문 NFC 태그'),
+    (2, '마포 NFC 백업',     'NFC',    '{"targets": [{"tag_id": "04:AA:BB:CC:DD:EE:77"}]}',                                                                          '마포지점 보조 태그'),
+    (3, '회사 WiFi 5G',      'WIFI',   '{"targets": [{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}]}',                                                                  '종합테스트센터 WiFi'),
+    (4, '비콘1 (강남삼성)',   'BEACON', '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}]}',     '비콘1 테스트지점'),
+    (5, '비콘2 (강남봉은사)', 'BEACON', '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}]}',     '비콘2 테스트지점'),
+    (6, '집',                'GPS',    '{"targets": [{"latitude": 37.5391, "longitude": 126.9453, "radius_meters": 200}]}',                                          '마포지점 인근'),
+    (7, '회사',              'GPS',    '{"targets": [{"latitude": 37.541905, "longitude": 126.949614, "radius_meters": 200}]}',                                      '회사 위치 GPS');
 
 -- ============================================
 -- 8. 시퀀스 리셋

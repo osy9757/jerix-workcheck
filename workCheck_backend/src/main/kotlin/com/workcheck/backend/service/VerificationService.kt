@@ -191,7 +191,32 @@ class VerificationService(
         return enabledMethods.firstOrNull { it.methodType in possibleTypes }
     }
 
-    // GPS 검증: 근무지 좌표 + config의 반경으로 Haversine 거리 계산
+    // 신 schema(targets[] + 부품별 prefix 키) ↔ 기존 단일 dict 모두 호환되게 타겟 배열 추출
+    // 우선순위: config[primaryKey] (예: gps_targets) → config["targets"] → config 자체를 단일 target 으로
+    private fun extractTargets(config: Map<String, Any>, primaryKey: String): List<Map<String, Any>> {
+        @Suppress("UNCHECKED_CAST")
+        val prefixed = config[primaryKey] as? List<*>
+        if (prefixed != null) {
+            return prefixed.filterIsInstance<Map<String, Any>>()
+        }
+        val generic = config["targets"] as? List<*>
+        if (generic != null) {
+            return generic.filterIsInstance<Map<String, Any>>()
+        }
+        // 기존 단일 dict (key 자체가 최상위에 있는 경우)
+        return listOf(config)
+    }
+
+    // QR 코드 후보 추출: qr_codes:[] (신) 또는 qr_code:String (기존) 모두 지원
+    private fun extractQrCodes(config: Map<String, Any>): List<String> {
+        val list = config["qr_codes"] as? List<*>
+        if (list != null) {
+            return list.filterIsInstance<String>().filter { it.isNotBlank() }
+        }
+        return listOfNotNull((config["qr_code"] as? String)?.takeIf { it.isNotBlank() })
+    }
+
+    // GPS 검증: targets[] 중 어느 하나라도 반경 안이면 통과 (Haversine 거리)
     private fun verifyGps(
         data: Map<String, Any>,
         config: Map<String, Any>,
@@ -200,15 +225,26 @@ class VerificationService(
     ): Boolean {
         val dataLat = (data["latitude"] as? Number)?.toDouble() ?: return false
         val dataLon = (data["longitude"] as? Number)?.toDouble() ?: return false
-        // config의 lat/lng가 있으면 우선 사용, 없을 때만 근무지 컬럼 좌표로 폴백
-        val targetLat = (config["latitude"] as? Number)?.toDouble() ?: workplaceLat ?: return false
-        val targetLon = (config["longitude"] as? Number)?.toDouble() ?: workplaceLon ?: return false
-        val radiusMeters = (config["radius_meters"] as? Number)?.toDouble() ?: return false
 
-        val distance = haversineDistance(dataLat, dataLon, targetLat, targetLon)
-        val result = distance <= radiusMeters
-        logger.info("[GPS] 앱좌표=($dataLat, $dataLon), 근무지좌표=($targetLat, $targetLon), 거리=${String.format("%.1f", distance)}m, 허용반경=${radiusMeters}m → ${if (result) "✅통과" else "❌실패"}")
-        return result
+        val targets = extractTargets(config, "gps_targets")
+        logger.info("[GPS] 앱좌표=($dataLat, $dataLon), 타겟 수=${targets.size}")
+
+        // 어느 한 타겟이라도 반경 안이면 통과
+        for ((i, target) in targets.withIndex()) {
+            // target 의 lat/lng 가 없으면 근무지 컬럼 좌표로 폴백
+            val targetLat = (target["latitude"] as? Number)?.toDouble() ?: workplaceLat
+            val targetLon = (target["longitude"] as? Number)?.toDouble() ?: workplaceLon
+            val radiusMeters = (target["radius_meters"] as? Number)?.toDouble()
+            if (targetLat == null || targetLon == null || radiusMeters == null) {
+                logger.info("[GPS]   [$i] 좌표/반경 누락 - 스킵")
+                continue
+            }
+            val distance = haversineDistance(dataLat, dataLon, targetLat, targetLon)
+            val passed = distance <= radiusMeters
+            logger.info("[GPS]   [$i] 타겟=($targetLat, $targetLon), 거리=${String.format("%.1f", distance)}m, 반경=${radiusMeters}m → ${if (passed) "✅통과" else "❌실패"}")
+            if (passed) return true
+        }
+        return false
     }
 
     // SSID 정규화: 앞뒤 공백/큰따옴표 제거 (대소문자는 SSID 표준상 그대로 유지)
@@ -219,56 +255,63 @@ class VerificationService(
     private fun normalizeBssid(value: String?): String? =
         value?.trim()?.replace(Regex("[:\\-\\s]"), "")?.lowercase()?.takeIf { it.isNotEmpty() }
 
-    // WiFi 검증: SSID 또는 BSSID 매칭 (정규화 후 비교)
+    // WiFi 검증: targets[] 중 SSID 또는 BSSID 매칭 (정규화 후 비교) 어느 하나라도 통과
     private fun verifyWifi(data: Map<String, Any>, config: Map<String, Any>): Boolean {
         val dataSsid = normalizeSsid(data["ssid"] as? String)
         val dataBssid = normalizeBssid(data["bssid"] as? String)
-        val configSsid = normalizeSsid(config["ssid"] as? String)
-        val configBssid = normalizeBssid(config["bssid"] as? String)
 
-        logger.info("[WiFi] 앱={ssid=$dataSsid, bssid=$dataBssid}, 설정={ssid=$configSsid, bssid=$configBssid}")
+        val targets = extractTargets(config, "wifi_targets")
+        logger.info("[WiFi] 앱={ssid=$dataSsid, bssid=$dataBssid}, 타겟 수=${targets.size}")
 
-        val result = if (!configBssid.isNullOrEmpty() && dataBssid != null) {
-            // 이미 lowercase + 구분자 제거 정규화 됨 → strict equals
-            val matched = configBssid == dataBssid
-            logger.info("[WiFi] BSSID 비교: $dataBssid vs $configBssid → ${if (matched) "✅통과" else "❌실패"}")
-            matched
-        } else if (configSsid != null && dataSsid != null) {
-            val matched = configSsid == dataSsid
-            logger.info("[WiFi] SSID 비교: $dataSsid vs $configSsid → ${if (matched) "✅통과" else "❌실패"}")
-            matched
-        } else {
-            logger.warn("[WiFi] 비교 불가: 앱 또는 설정 데이터 부족")
-            false
+        for ((i, target) in targets.withIndex()) {
+            val configSsid = normalizeSsid(target["ssid"] as? String)
+            val configBssid = normalizeBssid(target["bssid"] as? String)
+            val matched = if (!configBssid.isNullOrEmpty() && dataBssid != null) {
+                // BSSID 우선 비교 (이미 lowercase + 구분자 제거 정규화 됨)
+                val r = configBssid == dataBssid
+                logger.info("[WiFi]   [$i] BSSID 비교: $dataBssid vs $configBssid → ${if (r) "✅통과" else "❌실패"}")
+                r
+            } else if (configSsid != null && dataSsid != null) {
+                val r = configSsid == dataSsid
+                logger.info("[WiFi]   [$i] SSID 비교: $dataSsid vs $configSsid → ${if (r) "✅통과" else "❌실패"}")
+                r
+            } else {
+                logger.info("[WiFi]   [$i] 비교 불가: 앱 또는 타겟 데이터 부족")
+                false
+            }
+            if (matched) return true
         }
-        return result
+        return false
     }
 
-    // NFC 검증: tag_id 매칭
+    // NFC 검증: targets[] 중 tag_id 매칭 어느 하나라도 통과
     private fun verifyNfc(data: Map<String, Any>, config: Map<String, Any>): Boolean {
         val dataTagId = data["tag_id"] as? String ?: return false
-        val configTagId = config["tag_id"] as? String ?: return false
-        val result = dataTagId.equals(configTagId, ignoreCase = true)
-        logger.info("[NFC] 앱태그=$dataTagId, 설정태그=$configTagId → ${if (result) "✅통과" else "❌실패"}")
-        return result
+        val targets = extractTargets(config, "nfc_targets")
+        logger.info("[NFC] 앱태그=$dataTagId, 타겟 수=${targets.size}")
+
+        for ((i, target) in targets.withIndex()) {
+            val configTagId = target["tag_id"] as? String ?: continue
+            val passed = dataTagId.equals(configTagId, ignoreCase = true)
+            logger.info("[NFC]   [$i] 설정태그=$configTagId → ${if (passed) "✅통과" else "❌실패"}")
+            if (passed) return true
+        }
+        return false
     }
 
-    // Beacon 검증: UUID/Major/Minor 매칭 + RSSI 임계값 (에러 코드 분기)
+    // Beacon 검증: targets[] 중 UUID/Major/Minor + RSSI 통과 어느 하나라도 OK
+    // 실패 시 가장 진척된 단계의 에러 코드 보고 (NOT_DETECTED < UUID_MISMATCH < RSSI_TOO_WEAK)
     private fun verifyBeacon(data: Map<String, Any>, config: Map<String, Any>): Boolean {
         @Suppress("UNCHECKED_CAST")
         val devices = data["detected_devices"] as? List<Map<String, Any>>
-        val configUuid = config["uuid"] as? String ?: return false
-        val configMajor = (config["major"] as? Number)?.toInt()
-        val configMinor = (config["minor"] as? Number)?.toInt()
-        val rssiThreshold = (config["rssi_threshold"] as? Number)?.toInt() ?: -70
 
-        logger.info("[Beacon] 설정={uuid=$configUuid, major=$configMajor, minor=$configMinor, rssi임계=$rssiThreshold}")
-        logger.info("[Beacon] 감지된 기기 수: ${devices?.size ?: 0}")
+        val targets = extractTargets(config, "beacon_targets")
+        logger.info("[Beacon] 타겟 수=${targets.size}, 감지된 기기 수: ${devices?.size ?: 0}")
         devices?.forEachIndexed { i, d ->
-            logger.info("[Beacon]   [$i] uuid=${d["uuid"]}, major=${d["major"]}, minor=${d["minor"]}, rssi=${d["rssi"]}")
+            logger.info("[Beacon]   감지[$i] uuid=${d["uuid"]}, major=${d["major"]}, minor=${d["minor"]}, rssi=${d["rssi"]}")
         }
 
-        // 비콘이 아예 감지되지 않음
+        // 비콘이 아예 감지되지 않음 - 어떤 타겟도 검증 불가
         if (devices.isNullOrEmpty()) {
             throw VerificationFailedException(
                 VerificationErrorCode.BEACON_NOT_DETECTED,
@@ -276,50 +319,67 @@ class VerificationService(
             )
         }
 
-        // UUID 매칭 (Major/Minor 포함) 되는 디바이스 찾기
-        val uuidMatched = devices.filter { device ->
-            val deviceUuid = device["uuid"] as? String ?: ""
-            deviceUuid.equals(configUuid, ignoreCase = true) &&
-                (configMajor == null || configMajor == (device["major"] as? Number)?.toInt()) &&
-                (configMinor == null || configMinor == (device["minor"] as? Number)?.toInt())
+        var anyUuidMatched = false
+        var lastRssiThreshold = -70
+
+        for ((i, target) in targets.withIndex()) {
+            val configUuid = target["uuid"] as? String ?: continue
+            val configMajor = (target["major"] as? Number)?.toInt()
+            val configMinor = (target["minor"] as? Number)?.toInt()
+            val rssiThreshold = (target["rssi_threshold"] as? Number)?.toInt() ?: -70
+            lastRssiThreshold = rssiThreshold
+
+            logger.info("[Beacon]   타겟[$i] uuid=$configUuid, major=$configMajor, minor=$configMinor, rssi임계=$rssiThreshold")
+
+            // UUID + Major + Minor 매칭 디바이스
+            val uuidMatched = devices.filter { device ->
+                val deviceUuid = device["uuid"] as? String ?: ""
+                deviceUuid.equals(configUuid, ignoreCase = true) &&
+                    (configMajor == null || configMajor == (device["major"] as? Number)?.toInt()) &&
+                    (configMinor == null || configMinor == (device["minor"] as? Number)?.toInt())
+            }
+            logger.info("[Beacon]   타겟[$i] UUID+M+m 매칭 결과: ${uuidMatched.size}개")
+
+            if (uuidMatched.isEmpty()) {
+                continue
+            }
+            anyUuidMatched = true
+
+            // RSSI 임계값 통과 여부
+            val rssiPassed = uuidMatched.any { device ->
+                val rssi = (device["rssi"] as? Number)?.toInt() ?: -100
+                rssi >= rssiThreshold
+            }
+            logger.info("[Beacon]   타겟[$i] RSSI 통과: ${if (rssiPassed) "✅통과" else "❌미달"}")
+
+            if (rssiPassed) return true
         }
 
-        logger.info("[Beacon] UUID+Major+Minor 매칭 결과: ${uuidMatched.size}개")
-
-        // UUID 일치하는 비콘 없음
-        if (uuidMatched.isEmpty()) {
+        // 모든 타겟이 UUID 매칭 실패
+        if (!anyUuidMatched) {
             throw VerificationFailedException(
                 VerificationErrorCode.BEACON_UUID_MISMATCH,
                 "일치하는 비콘을 찾을 수 없습니다"
             )
         }
-
-        // UUID 일치하는 비콘 중 RSSI 임계값 통과하는 것 확인
-        val rssiPassed = uuidMatched.any { device ->
-            val rssi = (device["rssi"] as? Number)?.toInt() ?: -100
-            rssi >= rssiThreshold
-        }
-
-        logger.info("[Beacon] RSSI 통과 여부: ${if (rssiPassed) "✅통과" else "❌미달 (최대RSSI < $rssiThreshold)"}")
-
-        // RSSI 미달
-        if (!rssiPassed) {
-            throw VerificationFailedException(
-                VerificationErrorCode.BEACON_RSSI_TOO_WEAK,
-                "비콘 신호가 너무 약합니다 (임계값: $rssiThreshold)"
-            )
-        }
-
-        return true
+        // UUID 매칭은 됐으나 RSSI 모두 미달
+        throw VerificationFailedException(
+            VerificationErrorCode.BEACON_RSSI_TOO_WEAK,
+            "비콘 신호가 너무 약합니다 (임계값: $lastRssiThreshold)"
+        )
     }
 
-    // QR 검증: qr_code 매칭
+    // QR 검증: qr_codes[] 중 하나라도 매칭 통과
     private fun verifyQr(data: Map<String, Any>, config: Map<String, Any>): Boolean {
         val dataQr = data["qr_data"] as? String ?: return false
-        val configQr = config["qr_code"] as? String ?: return false
-        val result = dataQr == configQr
-        logger.info("[QR] 앱QR=$dataQr, 설정QR=$configQr → ${if (result) "✅통과" else "❌실패"}")
-        return result
+        val codes = extractQrCodes(config)
+        logger.info("[QR] 앱QR=$dataQr, 설정 코드 수=${codes.size}")
+        for ((i, code) in codes.withIndex()) {
+            val passed = dataQr == code
+            logger.info("[QR]   [$i] 설정QR=$code → ${if (passed) "✅통과" else "❌실패"}")
+            if (passed) return true
+        }
+        return false
     }
 
     // Haversine 거리 계산 (미터)

@@ -4,7 +4,8 @@ enum VerificationMethod {
   gps('GPS 위치', 'gps'),
   qr('QR코드 스캔', 'qr'),
   nfc('NFC 태그', 'nfc'),
-  bluetooth('블루투스 비콘', 'bluetooth'),
+  // 백엔드는 MethodType.BEACON을 'beacon' 키로 응답/요청하므로 'beacon'으로 통일
+  bluetooth('블루투스 비콘', 'beacon'),
   wifi('WiFi', 'wifi'),
   // 복합 인증
   gpsQr('GPS + QR코드', 'gps_qr'),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/models.dart';
+import '../utils/verification_targets.dart';
 
 /// 인증 프리셋 페이지
 /// - NFC/WiFi/GPS/Beacon 등 자주 쓰이는 인증값을 이름 붙여 저장하는 카탈로그
@@ -152,58 +153,34 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
   }
 
   /// configData를 한 줄 요약 문자열로 만들기 (DataTable 표시용)
+  /// 신 schema(`*_targets`/`qr_codes`) 기준으로 부품별 개수를 표시.
+  /// 단일 dict 폴백도 호환 ("위치 1개" 등으로 표시).
   String _summarizeConfig(VerificationPreset p) {
     if (p.configData.isEmpty) return '-';
-    // 좌표가 모두 있으면 "(lat, lng)" 형태로, 없으면 null
-    final lat = p.configData['latitude'];
-    final lng = p.configData['longitude'];
-    final coord = (lat != null && lng != null) ? '($lat, $lng)' : null;
+    final groups = partGroupsFor(p.methodType);
+    final summaries = <String>[];
 
-    switch (p.methodType) {
-      case 'NFC':
-        return 'tag_id: ${p.configData['tag_id'] ?? '-'}';
-      case 'NFC_GPS':
-        // tag_id + (좌표 있으면) + 반경
-        final tag = p.configData['tag_id'] ?? '-';
-        final r = p.configData['radius_meters'] ?? '-';
-        final parts = <String>['tag_id: $tag'];
-        if (coord != null) parts.add(coord);
-        parts.add('반경: ${r}m');
-        return parts.join(' / ');
-      case 'WIFI':
-      case 'WIFI_QR':
-        final ssid = p.configData['ssid'] ?? '-';
-        final bssid = p.configData['bssid'] ?? '-';
-        return 'SSID: $ssid / BSSID: $bssid';
-      case 'GPS':
-      case 'GPS_QR':
-        // 좌표 있으면 좌표 + 반경, 없으면 반경만
-        final r = p.configData['radius_meters'] ?? '-';
-        if (coord != null) {
-          return '$coord / 반경: ${r}m';
-        }
-        return '반경: ${r}m';
-      case 'BEACON':
-        final uuid = p.configData['uuid']?.toString() ?? '-';
-        final shortUuid = uuid.length > 8 ? '${uuid.substring(0, 8)}…' : uuid;
-        return 'UUID: $shortUuid / major:${p.configData['major'] ?? '-'} / minor:${p.configData['minor'] ?? '-'}';
-      case 'BEACON_GPS':
-        // BEACON 요약 + (좌표 있으면) + 반경
-        final uuid = p.configData['uuid']?.toString() ?? '-';
-        final shortUuid = uuid.length > 8 ? '${uuid.substring(0, 8)}…' : uuid;
-        final r = p.configData['radius_meters'] ?? '-';
-        final parts = <String>[
-          'UUID: $shortUuid',
-          'major:${p.configData['major'] ?? '-'}',
-          'minor:${p.configData['minor'] ?? '-'}',
-        ];
-        if (coord != null) parts.add(coord);
-        parts.add('반경: ${r}m');
-        return parts.join(' / ');
-      default:
-        // 알 수 없는 타입은 키만 노출
-        return p.configData.keys.join(', ');
+    // 부품 그룹별 타겟 개수
+    for (final g in groups) {
+      final fields = rowFieldsForPart(g.partType);
+      final targets = extractTargets(p.configData, g.configKey, fields);
+      if (targets.isEmpty) continue;
+      summaries.add('${partDisplayNameOf(g.partType)} ${targets.length}개');
     }
+
+    // QR 코드 개수 (GPS_QR/WIFI_QR만)
+    if (hasQrCodesSection(p.methodType)) {
+      final qrs = extractQrCodes(p.configData);
+      if (qrs.isNotEmpty) {
+        summaries.add('QR ${qrs.length}개');
+      }
+    }
+
+    if (summaries.isEmpty) {
+      // 알 수 없는 형태: 키만 노출
+      return p.configData.keys.join(', ');
+    }
+    return summaries.join(' / ');
   }
 
   @override
@@ -415,8 +392,11 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
   }
 }
 
-/// 프리셋 추가/수정 다이얼로그
-/// - 인증 수단 드롭다운 변경 시 입력 필드가 동적으로 바뀜
+/// 프리셋 추가/수정 다이얼로그 (동적 row UI - 신 schema)
+/// - 인증 수단 드롭다운 변경 시 부품 그룹 단위로 row UI 재생성
+/// - 부품 그룹별 row 카드 N개 + "+ 추가" 버튼
+/// - GPS_QR/WIFI_QR은 별도 QR 코드 섹션
+/// - 최소 1 row 유지
 class _PresetEditDialog extends StatefulWidget {
   final ApiService apiService;
   final VerificationPreset? preset; // null이면 신규
@@ -449,8 +429,11 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
   late final TextEditingController _memoCtrl;
   late String _methodType; // 현재 선택된 인증 수단
 
-  // method_type별 동적 필드 컨트롤러 (전부 생성해두고 보이는 것만 사용)
-  final Map<String, TextEditingController> _fieldCtrls = {};
+  /// configKey → 부품 row 컨트롤러 리스트 (각 row는 field key → TextEditingController)
+  final Map<String, List<Map<String, TextEditingController>>> _rowsByKey = {};
+
+  /// QR 코드 컨트롤러 리스트 (qr_codes 섹션)
+  final List<TextEditingController> _qrCodeCtrls = [];
 
   bool _saving = false;
 
@@ -462,154 +445,166 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     _memoCtrl = TextEditingController(text: p?.memo ?? '');
     _methodType = p?.methodType ?? 'NFC';
 
-    // 가능한 모든 필드 키에 대해 컨트롤러 생성 (값 유지)
-    // GPS 계열은 좌표(latitude/longitude)도 프리셋에 직접 저장
-    for (final key in const [
-      'tag_id',
-      'ssid',
-      'bssid',
-      'qr_code',
-      'radius_meters',
-      'latitude',
-      'longitude',
-      'uuid',
-      'major',
-      'minor',
-      'rssi_threshold',
-    ]) {
-      final initial = p?.configData[key]?.toString() ?? '';
-      _fieldCtrls[key] = TextEditingController(text: initial);
+    _initRowsForCurrentMethodType(p?.configData ?? const <String, dynamic>{});
+  }
+
+  /// 현재 _methodType에 맞춰 row 컨트롤러를 (재)초기화
+  /// 신/구 schema 호환: configKey 배열 우선, 없으면 단일 dict 폴백
+  void _initRowsForCurrentMethodType(Map<String, dynamic> source) {
+    final groups = partGroupsFor(_methodType);
+    for (final group in groups) {
+      final fields = rowFieldsForPart(group.partType);
+      var targets = extractTargets(source, group.configKey, fields);
+      if (targets.isEmpty) targets = [<String, dynamic>{}]; // 최소 1 row 유지
+      _rowsByKey[group.configKey] =
+          targets.map((t) => _makeRowControllers(fields, t)).toList();
     }
+    if (hasQrCodesSection(_methodType)) {
+      var codes = extractQrCodes(source);
+      if (codes.isEmpty) codes = [''];
+      for (final c in codes) {
+        _qrCodeCtrls.add(TextEditingController(text: c));
+      }
+    }
+  }
+
+  /// row의 컨트롤러 맵 생성
+  Map<String, TextEditingController> _makeRowControllers(
+    List<ConfigField> fields,
+    Map<String, dynamic> data,
+  ) {
+    final m = <String, TextEditingController>{};
+    for (final f in fields) {
+      final v = data[f.key];
+      m[f.key] = TextEditingController(text: v?.toString() ?? '');
+    }
+    return m;
+  }
+
+  /// 모든 row/QR 컨트롤러 dispose 후 _rowsByKey/_qrCodeCtrls 클리어
+  void _disposeAllRowControllers() {
+    for (final list in _rowsByKey.values) {
+      for (final row in list) {
+        for (final c in row.values) {
+          c.dispose();
+        }
+      }
+    }
+    _rowsByKey.clear();
+    for (final c in _qrCodeCtrls) {
+      c.dispose();
+    }
+    _qrCodeCtrls.clear();
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _memoCtrl.dispose();
-    for (final c in _fieldCtrls.values) {
-      c.dispose();
-    }
+    _disposeAllRowControllers();
     super.dispose();
   }
 
-  /// 현재 method_type에 노출할 필드 정의 목록
-  List<_PresetField> _currentFields() {
-    switch (_methodType) {
-      case 'NFC':
-        return const [
-          _PresetField('tag_id', 'NFC 태그 ID', '예: 04:E9:D8:3E:C8:2A:81',
-              _PresetFieldType.string),
-        ];
-      case 'NFC_GPS':
-        return const [
-          _PresetField('tag_id', 'NFC 태그 ID', '예: 04:E9:D8:3E:C8:2A:81',
-              _PresetFieldType.string),
-          _PresetField('latitude', '위도', '예: 37.5665',
-              _PresetFieldType.double_),
-          _PresetField('longitude', '경도', '예: 126.9780',
-              _PresetFieldType.double_),
-          _PresetField('radius_meters', '반경 (m)', '예: 200',
-              _PresetFieldType.int_),
-        ];
-      case 'WIFI':
-        return const [
-          _PresetField(
-              'ssid', 'WiFi SSID', '네트워크 이름', _PresetFieldType.string),
-          _PresetField(
-              'bssid', 'WiFi BSSID', 'MAC 주소 (옵션)', _PresetFieldType.string),
-        ];
-      case 'WIFI_QR':
-        return const [
-          _PresetField(
-              'ssid', 'WiFi SSID', '네트워크 이름', _PresetFieldType.string),
-          _PresetField(
-              'bssid', 'WiFi BSSID', 'MAC 주소 (옵션)', _PresetFieldType.string),
-          _PresetField(
-              'qr_code', 'QR 코드', 'QR 페이로드', _PresetFieldType.string),
-        ];
-      case 'GPS':
-        return const [
-          _PresetField('latitude', '위도', '예: 37.5665',
-              _PresetFieldType.double_),
-          _PresetField('longitude', '경도', '예: 126.9780',
-              _PresetFieldType.double_),
-          _PresetField('radius_meters', '반경 (m)', '예: 200',
-              _PresetFieldType.int_),
-        ];
-      case 'GPS_QR':
-        return const [
-          _PresetField('latitude', '위도', '예: 37.5665',
-              _PresetFieldType.double_),
-          _PresetField('longitude', '경도', '예: 126.9780',
-              _PresetFieldType.double_),
-          _PresetField('radius_meters', '반경 (m)', '예: 200',
-              _PresetFieldType.int_),
-          _PresetField(
-              'qr_code', 'QR 코드', 'QR 페이로드', _PresetFieldType.string),
-        ];
-      case 'BEACON':
-        return const [
-          _PresetField('uuid', 'Beacon UUID',
-              '예: E2C56DB5-DFFB-48D2-B060-D0F5A71096E0', _PresetFieldType.string),
-          _PresetField(
-              'major', 'Major', '정수값', _PresetFieldType.int_),
-          _PresetField(
-              'minor', 'Minor', '정수값', _PresetFieldType.int_),
-          _PresetField('rssi_threshold', 'RSSI 임계값', '음수 (예: -80)',
-              _PresetFieldType.int_),
-        ];
-      case 'BEACON_GPS':
-        return const [
-          _PresetField('uuid', 'Beacon UUID',
-              '예: E2C56DB5-DFFB-48D2-B060-D0F5A71096E0', _PresetFieldType.string),
-          _PresetField(
-              'major', 'Major', '정수값', _PresetFieldType.int_),
-          _PresetField(
-              'minor', 'Minor', '정수값', _PresetFieldType.int_),
-          _PresetField('rssi_threshold', 'RSSI 임계값', '음수 (예: -80)',
-              _PresetFieldType.int_),
-          _PresetField('latitude', '위도', '예: 37.5665',
-              _PresetFieldType.double_),
-          _PresetField('longitude', '경도', '예: 126.9780',
-              _PresetFieldType.double_),
-          _PresetField('radius_meters', '반경 (m)', '예: 200',
-              _PresetFieldType.int_),
-        ];
-      default:
-        return const [];
-    }
+  /// 인증 수단 변경 처리: 기존 컨트롤러 폐기 후 새 type에 맞춰 빈 row 1개로 초기화
+  void _onMethodTypeChanged(String? v) {
+    if (v == null || v == _methodType) return;
+    setState(() {
+      _disposeAllRowControllers();
+      _methodType = v;
+      // 메서드 변경 시 기존 입력 값은 폐기 (서로 다른 부품 구조)
+      _initRowsForCurrentMethodType(const <String, dynamic>{});
+    });
   }
 
-  /// 컨트롤러 텍스트를 타입에 맞춰 파싱
-  Map<String, dynamic> _buildConfigData() {
-    final result = <String, dynamic>{};
-    for (final field in _currentFields()) {
-      final raw = _fieldCtrls[field.key]?.text.trim() ?? '';
-      if (raw.isEmpty) continue; // 빈 값은 저장 안 함
-      switch (field.type) {
-        case _PresetFieldType.int_:
-          final n = int.tryParse(raw);
-          if (n != null) {
-            result[field.key] = n;
-          } else {
-            // 파싱 실패 시 그대로 (서버가 자유 JSONB로 받음)
-            result[field.key] = raw;
-          }
+  /// 부품 그룹에 빈 row 추가
+  void _addRow(PartGroup group) {
+    setState(() {
+      final fields = rowFieldsForPart(group.partType);
+      _rowsByKey[group.configKey]!
+          .add(_makeRowControllers(fields, const <String, dynamic>{}));
+    });
+  }
+
+  /// 부품 그룹의 row 삭제 (최소 1개 유지)
+  void _removeRow(PartGroup group, int index) {
+    setState(() {
+      final list = _rowsByKey[group.configKey]!;
+      if (list.length <= 1) {
+        for (final c in list[0].values) {
+          c.clear();
+        }
+        return;
+      }
+      for (final c in list[index].values) {
+        c.dispose();
+      }
+      list.removeAt(index);
+    });
+  }
+
+  /// QR 코드 추가
+  void _addQr() {
+    setState(() => _qrCodeCtrls.add(TextEditingController(text: '')));
+  }
+
+  /// QR 코드 삭제 (최소 1개 유지)
+  void _removeQr(int index) {
+    setState(() {
+      if (_qrCodeCtrls.length <= 1) {
+        _qrCodeCtrls[0].clear();
+        return;
+      }
+      _qrCodeCtrls[index].dispose();
+      _qrCodeCtrls.removeAt(index);
+    });
+  }
+
+  /// row의 컨트롤러 텍스트를 타입에 맞춰 dict로 변환
+  Map<String, dynamic> _rowToMap(
+    Map<String, TextEditingController> row,
+    List<ConfigField> fields,
+  ) {
+    final m = <String, dynamic>{};
+    for (final f in fields) {
+      final text = row[f.key]?.text.trim() ?? '';
+      if (text.isEmpty) continue;
+      switch (f.type) {
+        case ConfigFieldType.int_:
+          m[f.key] = int.tryParse(text) ?? text;
           break;
-        case _PresetFieldType.double_:
-          final d = double.tryParse(raw);
-          if (d != null) {
-            result[field.key] = d;
-          } else {
-            result[field.key] = raw;
-          }
+        case ConfigFieldType.double_:
+          m[f.key] = double.tryParse(text) ?? text;
           break;
-        case _PresetFieldType.string:
-          result[field.key] = raw;
+        case ConfigFieldType.string:
+          m[f.key] = text;
           break;
       }
     }
-    return result;
+    return m;
+  }
+
+  /// 신 schema로 직렬화 (빈 row는 제외)
+  Map<String, dynamic> _buildConfigData() {
+    final config = <String, dynamic>{};
+    final groups = partGroupsFor(_methodType);
+    for (final group in groups) {
+      final fields = rowFieldsForPart(group.partType);
+      final list = _rowsByKey[group.configKey] ?? const [];
+      final arr = <Map<String, dynamic>>[];
+      for (final row in list) {
+        final m = _rowToMap(row, fields);
+        if (m.isNotEmpty) arr.add(m);
+      }
+      config[group.configKey] = arr;
+    }
+    if (hasQrCodesSection(_methodType)) {
+      final codes = _qrCodeCtrls
+          .map((c) => c.text.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+      config['qr_codes'] = codes;
+    }
+    return config;
   }
 
   /// 저장 핸들러 (생성 또는 수정)
@@ -623,7 +618,8 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     }
     setState(() => _saving = true);
     try {
-      final memo = _memoCtrl.text.trim().isEmpty ? null : _memoCtrl.text.trim();
+      final memo =
+          _memoCtrl.text.trim().isEmpty ? null : _memoCtrl.text.trim();
       final config = _buildConfigData();
 
       if (widget.preset == null) {
@@ -649,7 +645,8 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
         widget.onSaved();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(widget.preset == null ? '프리셋이 생성되었습니다' : '프리셋이 수정되었습니다'),
+            content: Text(
+                widget.preset == null ? '프리셋이 생성되었습니다' : '프리셋이 수정되었습니다'),
             duration: const Duration(seconds: 1),
           ),
         );
@@ -664,7 +661,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     }
   }
 
-  /// 한글 라벨
+  /// 한글 라벨 (인증 수단 표시명)
   String _displayName(String methodType) {
     switch (methodType) {
       case 'GPS':
@@ -688,15 +685,239 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     }
   }
 
+  static const Color _primary = Color(0xFF2DDAA9);
+
+  /// 부품 그룹 섹션 빌드 (헤더 + row 카드들 + 추가 버튼)
+  Widget _buildPartSection(PartGroup group) {
+    final fields = rowFieldsForPart(group.partType);
+    final rows = _rowsByKey[group.configKey] ?? const [];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 6),
+          child: Row(
+            children: [
+              Text(
+                group.label,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _primary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${rows.length}개',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: _primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        ...List.generate(rows.length, (i) {
+          return Card(
+            elevation: 0,
+            margin: const EdgeInsets.only(bottom: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(color: Colors.grey.withOpacity(0.3)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _primary.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '#${i + 1}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: _primary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        tooltip: rows.length == 1 ? '값 비우기' : '이 row 삭제',
+                        color: Colors.red,
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _removeRow(group, i),
+                      ),
+                    ],
+                  ),
+                  ...fields.map((f) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: TextField(
+                        controller: rows[i][f.key],
+                        keyboardType: f.type == ConfigFieldType.int_ ||
+                                f.type == ConfigFieldType.double_
+                            ? const TextInputType.numberWithOptions(
+                                decimal: true, signed: true)
+                            : TextInputType.text,
+                        decoration: InputDecoration(
+                          labelText: f.label,
+                          helperText: f.hint,
+                          border: const OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          );
+        }),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            icon: const Icon(Icons.add, size: 18),
+            label: Text('${group.label} 추가'),
+            onPressed: () => _addRow(group),
+            style: TextButton.styleFrom(foregroundColor: _primary),
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
+  /// QR 코드 섹션 빌드 (GPS_QR/WIFI_QR 전용)
+  Widget _buildQrCodesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 6),
+          child: Row(
+            children: [
+              const Text(
+                'QR 코드',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: _primary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${_qrCodeCtrls.length}개',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: _primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        ...List.generate(_qrCodeCtrls.length, (i) {
+          return Card(
+            elevation: 0,
+            margin: const EdgeInsets.only(bottom: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+              side: BorderSide(color: Colors.grey.withOpacity(0.3)),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: _primary.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '#${i + 1}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: _primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: _qrCodeCtrls[i],
+                      decoration: const InputDecoration(
+                        labelText: 'QR 페이로드',
+                        helperText: '예: WC-GN-QR-001',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, size: 20),
+                    tooltip: _qrCodeCtrls.length == 1 ? '값 비우기' : 'QR 삭제',
+                    color: Colors.red,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _removeQr(i),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text('QR 코드 추가'),
+            onPressed: _addQr,
+            style: TextButton.styleFrom(foregroundColor: _primary),
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final fields = _currentFields();
     final isEditMode = widget.preset != null;
+    final groups = partGroupsFor(_methodType);
+    final hasQr = hasQrCodesSection(_methodType);
 
     return AlertDialog(
       title: Text(isEditMode ? '프리셋 수정' : '프리셋 추가'),
       content: SizedBox(
-        width: 480,
+        width: 540,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -728,15 +949,12 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                     child: Text(_displayName(mt)),
                   );
                 }).toList(),
-                onChanged: (v) {
-                  if (v == null) return;
-                  setState(() => _methodType = v);
-                },
+                onChanged: _onMethodTypeChanged,
               ),
               const SizedBox(height: 16),
 
-              // method_type별 동적 필드
-              if (fields.isEmpty)
+              // 부품 그룹별 동적 row 섹션
+              if (groups.isEmpty)
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -749,40 +967,10 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                   ),
                 )
               else
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '설정값',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    ...fields.map((f) {
-                      final ctrl = _fieldCtrls[f.key]!;
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: TextField(
-                          controller: ctrl,
-                          keyboardType: f.type == _PresetFieldType.int_ ||
-                                  f.type == _PresetFieldType.double_
-                              ? const TextInputType.numberWithOptions(
-                                  decimal: true, signed: true)
-                              : TextInputType.text,
-                          decoration: InputDecoration(
-                            labelText: f.label,
-                            helperText: f.hint,
-                            border: const OutlineInputBorder(),
-                            isDense: true,
-                          ),
-                        ),
-                      );
-                    }),
-                  ],
-                ),
+                ...groups.map(_buildPartSection),
+
+              // QR 코드 섹션 (GPS_QR/WIFI_QR)
+              if (hasQr) _buildQrCodesSection(),
 
               const SizedBox(height: 12),
 
@@ -808,7 +996,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
         ElevatedButton(
           onPressed: _saving ? null : _save,
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF2DDAA9),
+            backgroundColor: _primary,
             foregroundColor: Colors.white,
           ),
           child: _saving
@@ -825,16 +1013,4 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
       ],
     );
   }
-}
-
-/// 다이얼로그 내부의 동적 필드 정의
-enum _PresetFieldType { int_, double_, string }
-
-class _PresetField {
-  final String key; // configData 키 (snake_case)
-  final String label;
-  final String hint;
-  final _PresetFieldType type;
-
-  const _PresetField(this.key, this.label, this.hint, this.type);
 }

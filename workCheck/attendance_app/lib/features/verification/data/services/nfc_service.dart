@@ -11,12 +11,13 @@ import '../../domain/verification_strategy.dart';
 ///
 /// NFC 태그의 UID를 읽어 서버에 등록된 태그와 일치 여부를 확인한다.
 /// 태그 스캔은 다이얼로그(NfcTagDialog)를 통해 사용자에게 안내하며,
-/// 로컬에서 먼저 expectedTagId와 비교 후 서버로 전송한다.
+/// 로컬에서 먼저 expectedTagIds(다중)와 비교 후 서버로 전송한다.
 @Named('nfc')
 @LazySingleton(as: VerificationStrategy)
 class NfcVerificationService implements VerificationStrategy {
-  /// 서버에 등록된 기대 태그 ID (Bloc에서 인증 전에 설정)
-  String? expectedTagId;
+  /// 서버에 등록된 기대 태그 ID 목록 (Bloc에서 인증 전에 설정, OR 매칭)
+  /// 빈 리스트이면 사전 비교를 생략하고 서버 매칭에 위임한다.
+  List<String> expectedTagIds = const [];
 
   @override
   VerificationMethod get method => VerificationMethod.nfc;
@@ -35,7 +36,8 @@ class NfcVerificationService implements VerificationStrategy {
   /// NFC 인증 실행
   ///
   /// NFC 비활성화 → 안내 다이얼로그 → 태그 스캔 다이얼로그 → 로컬 태그 비교 순서로 진행.
-  /// expectedTagId가 설정되어 있으면 로컬에서 먼저 불일치를 걸러내어 불필요한 서버 요청을 방지한다.
+  /// expectedTagIds가 비어있지 않으면 로컬에서 먼저 OR 매칭으로 불일치를 걸러내어
+  /// 불필요한 서버 요청을 방지한다 (대소문자 무시).
   @override
   Future<VerificationResult> verify() async {
     final context = rootNavigatorKey.currentContext;
@@ -72,14 +74,19 @@ class NfcVerificationService implements VerificationStrategy {
       );
     }
 
-    // 로컬 태그 ID 비교 (설정값이 있을 경우)
-    if (expectedTagId != null && tagId != expectedTagId) {
-      return VerificationResult(
-        method: method,
-        isVerified: false,
-        data: {},
-        errorMessage: '등록된 NFC 태그와 일치하지 않습니다.',
-      );
+    // 로컬 태그 ID 비교 (기대 목록이 있을 때만, 대소문자 무시 OR 매칭)
+    if (expectedTagIds.isNotEmpty) {
+      final tagIdLower = tagId.toLowerCase();
+      final matched =
+          expectedTagIds.any((t) => t.toLowerCase() == tagIdLower);
+      if (!matched) {
+        return VerificationResult(
+          method: method,
+          isVerified: false,
+          data: {},
+          errorMessage: '등록된 NFC 태그와 일치하지 않습니다.',
+        );
+      }
     }
 
     // 스캔 성공

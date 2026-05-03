@@ -23,8 +23,10 @@ class BluetoothVerificationService implements VerificationStrategy {
   // RSSI 기본 임계값 (이 값보다 약하면 무시)
   static const int defaultRssiThreshold = -80;
 
-  /// 스캔할 iBeacon UUID (서버 설정값, Bloc에서 인증 전에 설정)
-  String? targetUuid;
+  /// 스캔할 iBeacon UUID 목록 (서버 설정값, Bloc에서 인증 전에 설정)
+  /// iOS는 Region당 UUID 1개라 다중 Region으로 ranging을 시작한다.
+  /// Android는 List를 단순 확장하여 클라이언트 필터링은 서버 매칭으로 위임한다.
+  List<String> targetUuids = const [];
 
   @override
   VerificationMethod get method => VerificationMethod.bluetooth;
@@ -139,21 +141,27 @@ class BluetoothVerificationService implements VerificationStrategy {
       debugPrint('[Beacon/iOS] 스캔 초기화 완료');
 
       // 스캔할 Region 설정 (UUID 지정)
-      // targetUuid가 없으면 기본 iBeacon UUID 사용
-      final uuid = targetUuid ?? 'E2C56DB5-DFFB-48D2-B060-D0F5A71096E0';
-      debugPrint('[Beacon/iOS] 타겟 UUID: $uuid');
+      // iOS는 Region당 UUID 1개 → 다중 Region 생성
+      // targetUuids가 비어있으면 기본 iBeacon UUID 사용 (Region 1개)
+      final uuids = targetUuids.isNotEmpty
+          ? targetUuids
+          : <String>['E2C56DB5-DFFB-48D2-B060-D0F5A71096E0'];
+      debugPrint('[Beacon/iOS] 타겟 UUIDs: $uuids');
 
-      final region = dchs.Region(
-        identifier: 'workcheck-beacon',
-        proximityUUID: uuid,
-      );
+      final regions = <dchs.Region>[];
+      for (var i = 0; i < uuids.length; i++) {
+        regions.add(dchs.Region(
+          identifier: 'workcheck-beacon-$i',
+          proximityUUID: uuids[i],
+        ));
+      }
 
-      // 5초간 ranging
+      // 5초간 ranging (다중 Region 동시)
       final detectedBeacons = <Map<String, dynamic>>[];
       final completer = Completer<void>();
 
-      debugPrint('[Beacon/iOS] ranging 시작 (5초)...');
-      final subscription = dchs.flutterBeacon.ranging([region]).listen((result) {
+      debugPrint('[Beacon/iOS] ranging 시작 (5초, region=${regions.length}개)...');
+      final subscription = dchs.flutterBeacon.ranging(regions).listen((result) {
         for (final beacon in result.beacons) {
           debugPrint('[Beacon/iOS] 발견 - UUID: ${beacon.proximityUUID}, '
               'Major: ${beacon.major}, Minor: ${beacon.minor}, '

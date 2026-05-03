@@ -75,27 +75,31 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
 
     // 서버 활성 인증 방법 (아이콘 표시용, 디바이스 가용 여부 무관)
     var serverMethods = <VerificationMethod>[];
-    // savedServerMethods 우선, 없으면 workplaceConfig 폴백
-    var methods = deviceMethods;
+    // 서버 설정이 있으면 그것만 사용. 디바이스 가용 방식과 교집합이 비면 빈 배열로 두어
+    // 출근 시 명확한 에러("회사 인증 수단을 사용할 수 없습니다")가 뜨도록 함.
+    // 서버 설정이 전혀 없을 때만 디바이스 가용 방식 전체를 폴백으로 사용.
+    var methods = <VerificationMethod>[];
     if (savedServerMethods != null && savedServerMethods.isNotEmpty) {
       serverMethods = savedServerMethods;
-      // 로그인 응답 활성 방법 ∩ 디바이스 가용 방법
-      final filtered = savedServerMethods
-          .where((m) => deviceMethods.contains(m))
-          .toList();
-      if (filtered.isNotEmpty) {
-        methods = filtered;
-      }
-    } else if (_workplaceConfig != null) {
+      methods = savedServerMethods.where(deviceMethods.contains).toList();
+    } else if (_workplaceConfig != null &&
+        _workplaceConfig!.enabledMethods.isNotEmpty) {
       serverMethods = _workplaceConfig!.enabledMethods;
-      // 폴백: 근무지 설정 활성 방법 ∩ 디바이스 가용 방법
-      final filtered = _workplaceConfig!.enabledMethods
-          .where((m) => deviceMethods.contains(m))
+      methods = _workplaceConfig!.enabledMethods
+          .where(deviceMethods.contains)
           .toList();
-      if (filtered.isNotEmpty) {
-        methods = filtered;
-      }
+    } else {
+      // 서버 설정이 비어있을 때만 디바이스 가용 방식 전체 폴백
+      methods = deviceMethods;
     }
+
+    // 진단 로그: 디바이스/서버/최종 인증 방식
+    // ignore: avoid_print
+    print('[Attendance.init] saved=$savedMethodNames '
+        'parsed=${savedServerMethods?.map((m) => m.name).toList()} '
+        'workplaceConfigMethods=${_workplaceConfig?.enabledMethods.map((m) => m.name).toList()} '
+        'deviceMethods=${deviceMethods.map((m) => m.name).toList()} '
+        'finalMethods=${methods.map((m) => m.name).toList()}');
 
     statusResult.fold(
       (failure) => emit(state.copyWith(
@@ -119,10 +123,22 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
     Emitter<AttendanceState> emit,
   ) async {
     final methods = state.availableMethods;
+
+    // 진단 로그: 출근 시점 인증 방식 목록
+    // ignore: avoid_print
+    print('[Attendance.clock] availableMethods=${methods.map((m) => m.name).toList()} '
+        'serverEnabled=${state.serverEnabledMethods.map((m) => m.name).toList()}');
+
     if (methods.isEmpty) {
+      // 서버 설정은 있는데 디바이스에서 사용 불가한 경우 안내 메시지 차별화
+      final serverHasMethods = state.serverEnabledMethods.isNotEmpty;
+      final msg = serverHasMethods
+          ? '회사가 허용한 인증 수단(${state.serverEnabledMethods.map((m) => m.label).join(", ")})을 '
+              '사용할 수 없습니다. NFC/블루투스/위치 등을 켜주세요.'
+          : '사용 가능한 인증 방식이 없습니다.';
       emit(state.copyWith(
         uiState: AttendanceUiState.error,
-        errorMessage: '사용 가능한 인증 방식이 없습니다.',
+        errorMessage: msg,
       ));
       return;
     }

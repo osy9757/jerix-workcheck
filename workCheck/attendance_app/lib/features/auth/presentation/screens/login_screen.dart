@@ -175,6 +175,10 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       final enabledMethods = (data['enabled_methods'] as List<dynamic>?)
           ?.map((e) => e as String)
           .toList();
+      // 진단 로그: 로그인 응답의 enabled_methods 원형
+      // ignore: avoid_print
+      print('[Login] response enabled_methods raw=${data['enabled_methods']} '
+          'parsed=$enabledMethods');
       if (enabledMethods != null) {
         await _authLocal.saveEnabledMethods(enabledMethods);
       }

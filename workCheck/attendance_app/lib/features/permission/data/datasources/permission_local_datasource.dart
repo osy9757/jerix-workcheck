@@ -26,7 +26,9 @@ class PermissionLocalDataSource {
       description: 'WiFi 네트워크 인증',
       iconAsset: 'assets/icons/Property_wifi.svg',
       requiredBy: [VerificationMethod.wifi],
-      skipCheck: Platform.isIOS, // iOS에서는 위치 권한으로 커버
+      // iOS: 위치 권한으로 커버. Android: network_info_plus가 위치 권한 기반으로 동작하며,
+      // NEARBY_WIFI_DEVICES는 API 33+ 전용이라 그 이하 단말에선 denied가 반환되어 모달이 안 닫힘.
+      skipCheck: true,
     ),
     (
       permission: Permission.camera,

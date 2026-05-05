@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- 위치 권한 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -7,14 +8,24 @@
     <!-- 카메라 권한 -->
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- 블루투스 권한 -->
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <!-- 블루투스 권한: Android 11 이하 레거시 -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+
+    <!-- 블루투스 권한: Android 12+ (BLE 비콘 스캔이지만 위치 추정 용도가 아니므로 neverForLocation) -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
-    <!-- WiFi 권한 (API 33+) -->
-    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
+    <!-- WiFi 권한 -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- API 33+ NEARBY_WIFI_DEVICES (WiFi 정보 접근 용도, 위치 추정 아님) -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="tiramisu" />
 
     <!-- NFC 권한 -->
     <uses-permission android:name="android.permission.NFC" />

@@ -59,8 +59,12 @@ class BluetoothVerificationService implements VerificationStrategy {
       debugPrint('[Beacon] iOS 권한 - BT: $btStatus, Location: $locStatus');
       return btStatus.isGranted && locStatus.isGranted;
     } else {
-      final status = await Permission.bluetoothScan.request();
-      return status.isGranted;
+      // Android 12+: BLUETOOTH_SCAN + BLUETOOTH_CONNECT 둘 다 필요
+      // (adapterState 조회와 BLE 스캔 양쪽에서 사용)
+      final scanStatus = await Permission.bluetoothScan.request();
+      final connectStatus = await Permission.bluetoothConnect.request();
+      debugPrint('[Beacon] Android 권한 - Scan: $scanStatus, Connect: $connectStatus');
+      return scanStatus.isGranted && connectStatus.isGranted;
     }
   }
 

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:injectable/injectable.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -26,12 +28,21 @@ class WifiVerificationService implements VerificationStrategy {
     return wifiName != null;
   }
 
-  /// WiFi 정보 접근에 필요한 위치 권한 요청
+  /// WiFi 정보 접근에 필요한 권한 요청
   ///
-  /// Android에서 SSID/BSSID를 읽으려면 위치 권한이 필수다.
+  /// - iOS: 위치 권한(locationWhenInUse) 필요
+  /// - Android 13+ (API 33+): NEARBY_WIFI_DEVICES 권한 필요
+  /// - Android 12 이하: ACCESS_FINE_LOCATION 권한 필요
+  /// (permission_handler 가 OS 미지원 권한은 자동으로 granted 처리)
   @override
   Future<bool> requestPermissions() async {
-    // WiFi 정보 접근에 위치 권한 필요 (Android)
+    if (Platform.isAndroid) {
+      // 두 권한 모두 시도 - OS 버전에 따라 둘 중 적합한 것이 채택됨
+      final nearby = await Permission.nearbyWifiDevices.request();
+      final loc = await Permission.locationWhenInUse.request();
+      return nearby.isGranted || loc.isGranted;
+    }
+    // iOS: 기존 동작 유지 (위치 권한)
     final status = await Permission.locationWhenInUse.request();
     return status.isGranted;
   }

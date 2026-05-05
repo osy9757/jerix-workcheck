@@ -1,6 +1,10 @@
 -- workCheck MVP - 시드 데이터 (기준표 기반 테스트 계정)
 -- 모든 직원 비밀번호: 1111 / 모든 관리자 비밀번호: admin1234
 
+-- ENUM 보강 (idempotent): 기존 DB에도 'QR' 값이 없으면 추가
+-- (PostgreSQL 12+ 의 IF NOT EXISTS 지원)
+ALTER TYPE method_type_enum ADD VALUE IF NOT EXISTS 'QR';
+
 -- ============================================
 -- 1. 회사
 -- ============================================
@@ -50,9 +54,16 @@ INSERT INTO admin_users (id, company_id, username, password_hash, name) VALUES
 -- 5. 인증 방법 등록
 -- ============================================
 
--- 본사 (workplace 1): GPS만 활성화
+-- 본사 (workplace 1): 8가지 모두 활성화 (전체 인증 방식 테스트용)
 INSERT INTO verification_methods (id, workplace_id, method_type, is_enabled) VALUES
-    (1, 1, 'GPS', TRUE);
+    (1,  1, 'GPS',        TRUE),
+    (19, 1, 'GPS_QR',     TRUE),
+    (20, 1, 'WIFI',       TRUE),
+    (21, 1, 'WIFI_QR',    TRUE),
+    (22, 1, 'NFC',        TRUE),
+    (23, 1, 'NFC_GPS',    TRUE),
+    (24, 1, 'BEACON',     TRUE),
+    (25, 1, 'BEACON_GPS', TRUE);
 
 -- 강남지점 (workplace 2): GPS_QR만 활성화
 INSERT INTO verification_methods (id, workplace_id, method_type, is_enabled) VALUES
@@ -111,9 +122,24 @@ INSERT INTO verification_methods (id, workplace_id, method_type, is_enabled) VAL
 --   복합(BEACON_GPS): {"beacon_targets":[...], "gps_targets":[...]}
 -- 좌표가 비어있는 GPS target 은 런타임에 근무지 컬럼 좌표로 폴백됨
 
--- 본사 GPS (단일 타겟, 좌표는 근무지 컬럼 폴백)
+-- 본사 (8가지 모두): 멀티타겟 시연 데이터 포함
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (1, '{"targets": [{"radius_meters": 200}]}');
+    -- GPS: 본사 좌표(폴백) + 추가 테스트 위치(반경 500m) 멀티
+    (1,  '{"targets": [{"radius_meters": 200}, {"latitude": 37.5532, "longitude": 126.9511, "radius_meters": 500}]}'),
+    -- GPS_QR: GPS 1개(본사 좌표 폴백) + QR 코드 2개
+    (19, '{"targets": [{"radius_meters": 200}], "qr_codes": ["WC-HQ-QR-001", "WC-HQ-QR-002"]}'),
+    -- WIFI: SSID 2개 멀티
+    (20, '{"targets": [{"ssid": "WorkCheck-HQ", "bssid": ""}, {"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}]}'),
+    -- WIFI_QR: WiFi 1개 + QR 1개
+    (21, '{"targets": [{"ssid": "WorkCheck-HQ", "bssid": ""}], "qr_codes": ["WC-HQ-WQ-001"]}'),
+    -- NFC: 태그 2개 멀티
+    (22, '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:AA:BB:CC:DD:EE:77"}]}'),
+    -- NFC_GPS: NFC 태그 2개 + GPS 1개(본사 좌표 폴백)
+    (23, '{"nfc_targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:AA:BB:CC:DD:EE:77"}], "gps_targets": [{"radius_meters": 200}]}'),
+    -- BEACON: 비콘 2개 멀티 (Major 동일, Minor 다름)
+    (24, '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}, {"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}]}'),
+    -- BEACON_GPS: 비콘 1개 + GPS 1개(본사 좌표 폴백)
+    (25, '{"beacon_targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}], "gps_targets": [{"radius_meters": 200}]}');
 
 -- 강남지점 GPS_QR (좌표 1개 + QR 코드 1개)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
@@ -175,13 +201,20 @@ INSERT INTO verification_configs (verification_method_id, config_data) VALUES
 -- ============================================
 -- 프리셋은 단일 카탈로그 항목 → targets[] 배열에 1개만 담아 관리 (확장성 일관성)
 INSERT INTO verification_presets (id, name, method_type, config_data, memo) VALUES
-    (1, '사무실 정문 NFC',   'NFC',    '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}]}',                                                                          '을지로지점 정문 NFC 태그'),
-    (2, '마포 NFC 백업',     'NFC',    '{"targets": [{"tag_id": "04:AA:BB:CC:DD:EE:77"}]}',                                                                          '마포지점 보조 태그'),
+    (1, '1',                 'NFC',    '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}]}',                                                                          '을지로지점 정문 NFC 태그'),
+    (2, '2',                 'NFC',    '{"targets": [{"tag_id": "04:AA:BB:CC:DD:EE:77"}]}',                                                                          '마포지점 보조 태그'),
     (3, '회사 WiFi 5G',      'WIFI',   '{"targets": [{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}]}',                                                                  '종합테스트센터 WiFi'),
     (4, '비콘1 (강남삼성)',   'BEACON', '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}]}',     '비콘1 테스트지점'),
     (5, '비콘2 (강남봉은사)', 'BEACON', '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}]}',     '비콘2 테스트지점'),
     (6, '집',                'GPS',    '{"targets": [{"latitude": 37.5391, "longitude": 126.9453, "radius_meters": 200}]}',                                          '마포지점 인근'),
-    (7, '회사',              'GPS',    '{"targets": [{"latitude": 37.541905, "longitude": 126.949614, "radius_meters": 200}]}',                                      '회사 위치 GPS');
+    (7, '회사',              'GPS',    '{"targets": [{"latitude": 37.541905, "longitude": 126.949614, "radius_meters": 200}]}',                                      '회사 위치 GPS'),
+    -- QR 프리셋 (admin_web 의 GPS_QR / WIFI_QR 편집 시 끼워넣는 카탈로그 용도)
+    (8,  '본사 QR-001',       'QR',     '{"qr_codes":["WC-HQ-QR-001"]}',                                                                                              '본사 1번 QR'),
+    (9,  '본사 QR-002',       'QR',     '{"qr_codes":["WC-HQ-QR-002"]}',                                                                                              '본사 2번 QR'),
+    (10, '강남지점 QR',       'QR',     '{"qr_codes":["WC-GN-QR-001"]}',                                                                                              '강남지점 QR'),
+    (11, '판교지점 WiFi QR',  'QR',     '{"qr_codes":["WC-PG-WQ-001"]}',                                                                                              '판교지점 WIFI_QR용 QR'),
+    -- WiFi 랜덤 테스트용 프리셋 (실제 환경과 매칭되지 않는 더미값)
+    (12, 'WiFi 랜덤테스트',   'WIFI',   '{"targets": [{"ssid": "TEST_RAND_8F3K2J", "bssid": "AA:BB:CC:11:22:33"}]}',                                                  'WiFi 인증 실패/매칭 테스트용 더미 SSID');
 
 -- ============================================
 -- 8. 시퀀스 리셋

@@ -2,7 +2,6 @@ package com.workcheck.backend.controller
 
 import com.workcheck.backend.dto.request.CreateWorkplaceRequest
 import com.workcheck.backend.dto.request.UpdateWorkplaceRequest
-import com.workcheck.backend.dto.response.QrCodeResponse
 import com.workcheck.backend.dto.response.VerificationMethodListResponse
 import com.workcheck.backend.dto.response.VerificationMethodResponse
 import com.workcheck.backend.dto.response.WorkplaceConfigResponse
@@ -72,17 +71,5 @@ class WorkplaceController(
     @GetMapping("/{id}/config")
     fun getWorkplaceConfig(@PathVariable id: Long): ResponseEntity<WorkplaceConfigResponse> {
         return ResponseEntity.ok(workplaceService.getWorkplaceConfig(id))
-    }
-
-    // 근무지 QR 코드 조회
-    @GetMapping("/{id}/qr-code")
-    fun getQrCode(@PathVariable id: Long): ResponseEntity<QrCodeResponse> {
-        return ResponseEntity.ok(workplaceService.getQrCode(id))
-    }
-
-    // 근무지 QR 코드 재생성
-    @PutMapping("/{id}/qr-code")
-    fun regenerateQrCode(@PathVariable id: Long): ResponseEntity<QrCodeResponse> {
-        return ResponseEntity.ok(workplaceService.regenerateQrCode(id))
     }
 }

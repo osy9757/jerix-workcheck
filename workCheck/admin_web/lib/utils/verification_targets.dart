@@ -34,6 +34,7 @@ class PartGroup {
 /// 단독 메서드는 `targets` 배열 1개 그룹.
 /// 복합 메서드(NFC_GPS/BEACON_GPS)는 부품별 분리 키.
 /// GPS_QR/WIFI_QR은 메인 부품의 `targets` + 별도 `qr_codes`.
+/// QR 단독 메서드는 부품 row 없이 `qr_codes`만 사용 → 빈 리스트 반환.
 List<PartGroup> partGroupsFor(String methodType) {
   switch (methodType) {
     case 'GPS':
@@ -56,14 +57,21 @@ List<PartGroup> partGroupsFor(String methodType) {
         PartGroup('BEACON', 'beacon_targets', 'Beacon 대상'),
         PartGroup('GPS', 'gps_targets', 'GPS 좌표 대상'),
       ];
+    case 'QR':
+      // QR 단독: 부품 row 없음 (qr_codes 섹션만 사용)
+      return const [];
     default:
       return const [];
   }
 }
 
-/// QR 코드 섹션이 있는 메서드인지 (GPS_QR / WIFI_QR)
+/// QR 코드 섹션이 있는 메서드인지
+/// - GPS_QR / WIFI_QR : 메인 부품 + QR 코드
+/// - QR : QR 코드 섹션만 단독 사용
 bool hasQrCodesSection(String methodType) =>
-    methodType == 'GPS_QR' || methodType == 'WIFI_QR';
+    methodType == 'GPS_QR' ||
+    methodType == 'WIFI_QR' ||
+    methodType == 'QR';
 
 /// 부품 타입(원자) 한글 표시명
 String partDisplayNameOf(String partType) {

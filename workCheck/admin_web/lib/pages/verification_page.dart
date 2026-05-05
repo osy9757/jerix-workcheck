@@ -206,25 +206,31 @@ class _VerificationPageState extends State<VerificationPage> {
     }
   }
 
-  /// QR 코드 모달
-  void _showQrModal(Workplace workplace) {
+  /// QR 코드 모달 - 인증 설정의 qr_codes 기반
+  /// - method 지정: 해당 method.config의 qr_codes만 렌더링
+  /// - method 미지정: 활성화된 GPS_QR/WIFI_QR 메서드 전체의 qr_codes를 그룹별 렌더링
+  /// - 비교용 랜덤 QR(=인증 실패)도 함께 보여줌
+  void _showQrModal(Workplace workplace, {VerificationMethod? method}) {
+    // 표시 대상 메서드 결정
+    final List<VerificationMethod> targets = method != null
+        ? [method]
+        : _methods.where((m) => _hasQr(m.methodType) && m.enabled).toList();
+
+    // (메서드, qr_codes) 그룹 — 빈 코드 제거
+    final groups = <MapEntry<VerificationMethod, List<String>>>[];
+    for (final m in targets) {
+      final codes = extractQrCodes(m.config)
+          .where((c) => c.trim().isNotEmpty)
+          .toList();
+      if (codes.isNotEmpty) groups.add(MapEntry(m, codes));
+    }
+
     String randomQr = _generateRandomQr();
-    String? realQr;
-    bool loading = true;
-    String? error;
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
-          if (loading && realQr == null && error == null) {
-            widget.apiService.getWorkplaceQrCode(workplace.id).then((qr) {
-              setDialogState(() { realQr = qr; loading = false; });
-            }).catchError((e) {
-              setDialogState(() { error = 'QR 로드 실패'; loading = false; });
-            });
-          }
-
           return AlertDialog(
             title: Row(
               children: [
@@ -234,44 +240,90 @@ class _VerificationPageState extends State<VerificationPage> {
               ],
             ),
             content: SizedBox(
-              width: 560,
-              child: loading
-                  ? const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()))
-                  : error != null
-                      ? SizedBox(height: 200, child: Center(child: Text(error!, style: const TextStyle(color: Colors.red))))
-                      : Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+              width: 720,
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // 등록된 QR이 없을 때 안내
+                    if (groups.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                        ),
+                        child: const Text(
+                          '등록된 QR 코드가 없습니다.\n'
+                          '인증 설정에서 GPS+QR / WiFi+QR 메서드를 활성화하고 qr_codes를 추가하세요.',
+                          style: TextStyle(color: Colors.orange),
+                        ),
+                      ),
+
+                    // 메서드별 QR 그룹
+                    for (final g in groups) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8, bottom: 8),
+                        child: Row(
                           children: [
-                            Expanded(child: _buildQrCard(
-                              label: '인증용 QR', subtitle: '스캔 → 인증 성공',
-                              data: realQr!, color: const Color(0xFF2DDAA9),
-                            )),
-                            const SizedBox(width: 24),
-                            Expanded(child: _buildQrCard(
-                              label: '테스트 (랜덤)', subtitle: '스캔 → 인증 실패',
-                              data: randomQr, color: Colors.grey,
-                            )),
+                            Icon(_getIcon(g.key.methodType),
+                                size: 18, color: _getColor(g.key.methodType)),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${g.key.displayName} · 인증용 QR ${g.value.length}개',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: _getColor(g.key.methodType),
+                              ),
+                            ),
                           ],
                         ),
+                      ),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        children: [
+                          for (int i = 0; i < g.value.length; i++)
+                            _buildQrCard(
+                              label: '${g.key.displayName} #${i + 1}',
+                              subtitle: '스캔 → 인증 성공',
+                              data: g.value[i],
+                              color: _getColor(g.key.methodType),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Divider(height: 24),
+                    ],
+
+                    // 비교용 랜덤 QR (실패 케이스 데모)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4, bottom: 8),
+                      child: Text(
+                        '비교용 (랜덤)',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600, color: Colors.grey),
+                      ),
+                    ),
+                    _buildQrCard(
+                      label: '테스트 (랜덤)',
+                      subtitle: '스캔 → 인증 실패',
+                      data: randomQr,
+                      color: Colors.grey,
+                    ),
+                  ],
+                ),
+              ),
             ),
             actions: [
               TextButton.icon(
                 icon: const Icon(Icons.shuffle, size: 18),
                 label: const Text('랜덤 QR 변경'),
-                onPressed: () => setDialogState(() => randomQr = _generateRandomQr()),
-              ),
-              TextButton.icon(
-                icon: const Icon(Icons.refresh, size: 18, color: Colors.orange),
-                label: const Text('인증 QR 재생성', style: TextStyle(color: Colors.orange)),
-                onPressed: () async {
-                  setDialogState(() { loading = true; error = null; });
-                  try {
-                    final newQr = await widget.apiService.regenerateWorkplaceQrCode(workplace.id);
-                    setDialogState(() { realQr = newQr; loading = false; });
-                  } catch (e) {
-                    setDialogState(() { error = 'QR 재생성 실패'; loading = false; });
-                  }
-                },
+                onPressed: () =>
+                    setDialogState(() => randomQr = _generateRandomQr()),
               ),
               ElevatedButton(
                 onPressed: () => Navigator.pop(ctx),
@@ -631,7 +683,7 @@ class _VerificationPageState extends State<VerificationPage> {
                   ? () => _resetUserOverride(method)
                   : null,
               onShowQr: _selectedWorkplace != null
-                  ? () => _showQrModal(_selectedWorkplace!)
+                  ? () => _showQrModal(_selectedWorkplace!, method: method)
                   : null,
             ),
         ],
@@ -985,6 +1037,139 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
     }
   }
 
+  /// QR 프리셋(method_type='QR') 카탈로그에서 페이로드를 골라 _qrCodeCtrls에 추가
+  /// - 같은 페이로드는 중복 추가하지 않는다 (현재 입력 텍스트 기준)
+  /// - 빈 row가 1개만 있고 비어있다면 그 row에 첫 페이로드를 채워넣는다
+  Future<void> _showLoadQrPresetDialog() async {
+    List<VerificationPreset> presets = [];
+    try {
+      presets = await widget.apiService.getPresets(methodType: 'QR');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('QR 프리셋을 불러올 수 없습니다')),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+
+    // 빈 상태: 안내만 표시하고 닫기
+    if (presets.isEmpty) {
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('QR 프리셋 선택'),
+          content: const SizedBox(
+            width: 420,
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Text('등록된 QR 프리셋이 없습니다'),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('닫기'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // 프리셋 카드 리스트에서 1개 선택
+    final selected = await showDialog<VerificationPreset>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('QR 프리셋 선택'),
+        content: SizedBox(
+          width: 480,
+          height: 360,
+          child: ListView.separated(
+            itemCount: presets.length,
+            separatorBuilder: (_, __) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final p = presets[index];
+              final codes = extractQrCodes(p.configData);
+              final summary = p.memo ??
+                  (codes.isEmpty
+                      ? '(빈 프리셋)'
+                      : '${codes.length}개 · ${codes.take(2).join(', ')}${codes.length > 2 ? ' …' : ''}');
+              return ListTile(
+                title: Text(p.name),
+                subtitle: Text(
+                  summary,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(ctx, p),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
+        ],
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    final newCodes = extractQrCodes(selected.configData)
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (newCodes.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"${selected.name}" 프리셋에 QR 페이로드가 없습니다'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    // 적용: 기존 입력값에 없는 페이로드만 추가
+    setState(() {
+      // 현재 보유 페이로드 (공백 제거 후 비어있지 않은 것만)
+      final existing = _qrCodeCtrls
+          .map((c) => c.text.trim())
+          .where((s) => s.isNotEmpty)
+          .toSet();
+
+      // 빈 row(첫 ctrl이 비어있는 경우)는 첫 신규 페이로드로 채움
+      var idx = 0;
+      if (_qrCodeCtrls.isNotEmpty &&
+          _qrCodeCtrls.first.text.trim().isEmpty &&
+          idx < newCodes.length) {
+        _qrCodeCtrls.first.text = newCodes[idx];
+        existing.add(newCodes[idx]);
+        idx++;
+      }
+      // 나머지는 새 row로 추가 (중복 제외)
+      for (; idx < newCodes.length; idx++) {
+        final code = newCodes[idx];
+        if (existing.contains(code)) continue;
+        _qrCodeCtrls.add(TextEditingController(text: code));
+        existing.add(code);
+      }
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"${selected.name}" QR 프리셋을 추가했습니다 (저장 버튼을 눌러 적용)'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   /// 현재 입력값을 프리셋으로 저장 (신 schema 직렬화)
   Future<void> _showSaveAsPresetDialog() async {
     final nameCtrl = TextEditingController();
@@ -1249,7 +1434,7 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
     );
   }
 
-  /// QR 코드 섹션 빌드 (GPS_QR/WIFI_QR 전용)
+  /// QR 코드 섹션 빌드 (GPS_QR/WIFI_QR/QR 단독)
   Widget _buildQrCodesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1281,6 +1466,14 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+              ),
+              const Spacer(),
+              // QR 프리셋(method_type='QR' 카탈로그)에서 페이로드 가져오기
+              TextButton.icon(
+                icon: const Icon(Icons.bookmark_add, size: 18),
+                label: const Text('QR 프리셋에서 추가'),
+                onPressed: _showLoadQrPresetDialog,
+                style: TextButton.styleFrom(foregroundColor: widget.color),
               ),
             ],
           ),
@@ -1363,6 +1556,34 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
         children: [
           const Divider(),
           const SizedBox(height: 8),
+
+          // 유저 모드: 단일 활성 인증 방식 정책 안내 (백엔드가 자동 적용)
+          if (widget.isUserMode)
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.orange.withOpacity(0.4)),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.warning_amber, size: 18, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '유저는 한 번에 하나의 인증 방식만 활성됩니다. 다른 방식을 켜면 기존 활성 방식은 자동 비활성화됩니다.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFFB76E00),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
 
           // 유저 모드에서 비오버라이드 안내
           if (widget.isUserMode && !widget.isOverridden)

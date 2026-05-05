@@ -71,6 +71,7 @@ class UserService(
     }
 
     // 유저 인증 오버라이드 설정
+    // 단일 활성 제약: enabled=true 요청 시 같은 유저의 다른 모든 method_type 을 isEnabled=false 로 자동 upsert
     @Transactional
     fun setUserVerificationOverride(userId: Long, request: UpdateUserVerificationRequest) {
         val user = userRepository.findById(userId)
@@ -78,7 +79,40 @@ class UserService(
 
         val methodType = MethodType.valueOf(request.methodType)
 
-        // 기존 오버라이드가 있으면 수정, 없으면 생성
+        // QR 은 프리셋 카탈로그 전용 - 유저 오버라이드로 사용 불가
+        if (methodType == MethodType.QR) {
+            throw IllegalArgumentException("QR 은 프리셋 카탈로그 전용 타입입니다")
+        }
+
+        // 단일 활성 제약: 활성화 요청이면 같은 유저의 다른 method_type 을 모두 비활성으로 강제
+        if (request.isEnabled) {
+            val now = OffsetDateTime.now()
+            MethodType.values()
+                .filter { it != methodType && it != MethodType.QR }
+                .forEach { other ->
+                    val otherOverride = userVerificationOverrideRepository.findByUserIdAndMethodType(userId, other)
+                    if (otherOverride != null) {
+                        // 이미 비활성화된 항목은 건드리지 않음
+                        if (otherOverride.isEnabled) {
+                            otherOverride.isEnabled = false
+                            otherOverride.updatedAt = now
+                            userVerificationOverrideRepository.save(otherOverride)
+                        }
+                    } else {
+                        // 오버라이드가 없으면 비활성 상태로 신규 upsert
+                        userVerificationOverrideRepository.save(
+                            UserVerificationOverride(
+                                user = user,
+                                methodType = other,
+                                isEnabled = false,
+                                configData = emptyMap()
+                            )
+                        )
+                    }
+                }
+        }
+
+        // 기존 오버라이드가 있으면 수정, 없으면 생성 (본 메서드 타입)
         val existing = userVerificationOverrideRepository.findByUserIdAndMethodType(userId, methodType)
         if (existing != null) {
             existing.isEnabled = request.isEnabled

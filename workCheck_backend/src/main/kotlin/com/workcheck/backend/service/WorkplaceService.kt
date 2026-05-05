@@ -2,7 +2,6 @@ package com.workcheck.backend.service
 
 import com.workcheck.backend.dto.request.CreateWorkplaceRequest
 import com.workcheck.backend.dto.request.UpdateWorkplaceRequest
-import com.workcheck.backend.dto.response.QrCodeResponse
 import com.workcheck.backend.dto.response.WorkplaceConfigResponse
 import com.workcheck.backend.dto.response.WorkplaceListResponse
 import com.workcheck.backend.dto.response.WorkplaceResponse
@@ -18,9 +17,8 @@ import com.workcheck.backend.repository.VerificationMethodRepository
 import com.workcheck.backend.repository.WorkplaceRepository
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
-import java.util.UUID
 
-// 근무지 생성·수정·삭제 및 QR 코드, 앱용 인증 설정 조회 서비스
+// 근무지 생성·수정·삭제 및 앱용 인증 설정 조회 서비스
 @Service
 class WorkplaceService(
     private val workplaceRepository: WorkplaceRepository,
@@ -55,17 +53,16 @@ class WorkplaceService(
             )
         )
 
-        // 8가지 인증 방법 자동 생성 (모두 비활성)
-        // QR 관련 방법은 qr_codes 배열로 자동 생성 (신 schema)
-        val qrCode = UUID.randomUUID().toString()
+        // 8가지 인증 방법 자동 생성 (모두 비활성, 빈 설정으로 시작)
         for (methodType in MethodType.entries) {
             val method = verificationMethodRepository.save(
                 VerificationMethod(workplace = workplace, methodType = methodType, isEnabled = false)
             )
             // 신 schema: 단독 → targets:[], 복합(QR 포함) → targets:[]+qr_codes:[]
+            // QR 코드는 관리자 화면에서 직접 등록 (자동 시딩 없음)
             val configData: Map<String, Any> = when (methodType) {
                 MethodType.GPS_QR, MethodType.WIFI_QR ->
-                    mapOf("targets" to emptyList<Map<String, Any>>(), "qr_codes" to listOf(qrCode))
+                    mapOf("targets" to emptyList<Map<String, Any>>(), "qr_codes" to emptyList<String>())
                 MethodType.NFC_GPS ->
                     mapOf("nfc_targets" to emptyList<Map<String, Any>>(), "gps_targets" to emptyList<Map<String, Any>>())
                 MethodType.BEACON_GPS ->
@@ -123,69 +120,6 @@ class WorkplaceService(
         }
         verificationMethodRepository.deleteAll(methods)
         workplaceRepository.deleteById(workplaceId)
-    }
-
-    // QR 코드가 포함된 인증 방법 타입
-    private val qrMethodTypes = setOf(MethodType.GPS_QR, MethodType.WIFI_QR)
-
-    // 근무지 QR 코드 조회
-    fun getQrCode(workplaceId: Long): QrCodeResponse {
-        if (!workplaceRepository.existsById(workplaceId)) {
-            throw IllegalArgumentException("근무지를 찾을 수 없습니다: $workplaceId")
-        }
-
-        val qrCode = findQrCodeByWorkplace(workplaceId)
-        return QrCodeResponse(workplaceId = workplaceId, qrCode = qrCode)
-    }
-
-    // 근무지 QR 코드 재생성
-    // 신 schema(qr_codes:[]) 우선 갱신, qr_codes 키가 없으면 기존 qr_code(단일) 갱신
-    @Transactional
-    fun regenerateQrCode(workplaceId: Long): QrCodeResponse {
-        if (!workplaceRepository.existsById(workplaceId)) {
-            throw IllegalArgumentException("근무지를 찾을 수 없습니다: $workplaceId")
-        }
-
-        val newQrCode = UUID.randomUUID().toString()
-
-        for (methodType in qrMethodTypes) {
-            val method = verificationMethodRepository.findByWorkplaceIdAndMethodType(workplaceId, methodType)
-                ?: continue
-            val config = verificationConfigRepository.findByVerificationMethodId(method.id) ?: continue
-            val updatedData = config.configData.toMutableMap()
-            // 신 schema 가 이미 적용된 경우 qr_codes 배열 자체를 단일 코드로 교체
-            if (updatedData["qr_codes"] is List<*>) {
-                updatedData["qr_codes"] = listOf(newQrCode)
-            } else {
-                // 기존 단일 키로 저장된 경우는 그대로 단일 키 유지
-                updatedData["qr_code"] = newQrCode
-            }
-            config.configData = updatedData
-            config.updatedAt = java.time.OffsetDateTime.now()
-            verificationConfigRepository.save(config)
-        }
-
-        return QrCodeResponse(workplaceId = workplaceId, qrCode = newQrCode)
-    }
-
-    // 근무지의 QR 코드 값 조회 (GPS_QR 또는 WIFI_QR에서)
-    // 신 schema(qr_codes:[]) 첫 항목 우선, 그다음 기존 qr_code(단일) 키 호환
-    private fun findQrCodeByWorkplace(workplaceId: Long): String {
-        for (methodType in qrMethodTypes) {
-            val method = verificationMethodRepository.findByWorkplaceIdAndMethodType(workplaceId, methodType)
-                ?: continue
-            val config = verificationConfigRepository.findByVerificationMethodId(method.id) ?: continue
-
-            // 1순위: qr_codes 배열의 첫 항목
-            val list = config.configData["qr_codes"] as? List<*>
-            val firstFromList = list?.filterIsInstance<String>()?.firstOrNull { it.isNotBlank() }
-            if (!firstFromList.isNullOrBlank()) return firstFromList
-
-            // 2순위: 기존 단일 qr_code
-            val qrCode = config.configData["qr_code"] as? String
-            if (!qrCode.isNullOrBlank()) return qrCode
-        }
-        return ""
     }
 
     // GPS가 포함된 인증 방법 타입

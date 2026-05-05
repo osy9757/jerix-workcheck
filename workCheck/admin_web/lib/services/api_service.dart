@@ -291,18 +291,4 @@ class ApiService {
   Future<void> deletePreset(int id) async {
     await _dio.delete('/verification-presets/$id');
   }
-
-  // --- QR 코드 ---
-
-  /// 근무지 QR 코드 조회
-  Future<String> getWorkplaceQrCode(int workplaceId) async {
-    final response = await _dio.get('/workplaces/$workplaceId/qr-code');
-    return response.data['qr_code'] as String;
-  }
-
-  /// 근무지 QR 코드 재생성
-  Future<String> regenerateWorkplaceQrCode(int workplaceId) async {
-    final response = await _dio.put('/workplaces/$workplaceId/qr-code');
-    return response.data['qr_code'] as String;
-  }
 }

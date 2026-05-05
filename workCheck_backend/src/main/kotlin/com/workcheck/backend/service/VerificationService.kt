@@ -82,7 +82,8 @@ class VerificationService(
         } ?: emptyMap()
 
         // 8가지 메서드 타입 모두 반환 (override > 근무지 기본 > 기본값(disabled/empty))
-        val methods = MethodType.values().map { type ->
+        // QR 은 카탈로그 전용 타입이라 사용자 인증 수단 노출에서 제외
+        val methods = MethodType.values().filter { it != MethodType.QR }.map { type ->
             val override = overrideMap[type]
             val workplaceMethod = workplaceMethodMap[type]
             val workplaceConfig = workplaceMethod?.let { verificationConfigRepository.findByVerificationMethodId(it.id) }
@@ -163,6 +164,7 @@ class VerificationService(
             MethodType.NFC_GPS -> verifyNfc(verificationData, configData) && verifyGps(verificationData, configData, wpLat, wpLon)
             MethodType.BEACON -> verifyBeacon(verificationData, configData)
             MethodType.BEACON_GPS -> verifyBeacon(verificationData, configData) && verifyGps(verificationData, configData, wpLat, wpLon)
+            MethodType.QR -> false // QR 단독은 카탈로그 전용 - 인증 수단으로 사용 불가
         }
 
         if (!verified) {

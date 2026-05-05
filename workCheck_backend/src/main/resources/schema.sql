@@ -2,9 +2,10 @@
 -- 출퇴근 앱 DB 스키마
 
 -- ENUM 타입 정의
+-- 'QR'은 verification_presets 카탈로그 전용 (verification_methods / user_verification_overrides 에서는 CHECK 제약으로 거부)
 CREATE TYPE method_type_enum AS ENUM (
     'GPS', 'GPS_QR', 'WIFI', 'WIFI_QR',
-    'NFC', 'NFC_GPS', 'BEACON', 'BEACON_GPS'
+    'NFC', 'NFC_GPS', 'BEACON', 'BEACON_GPS', 'QR'
 );
 
 CREATE TYPE attendance_type_enum AS ENUM (
@@ -70,7 +71,8 @@ CREATE TABLE verification_methods (
     created_at   TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
 
-    UNIQUE (workplace_id, method_type)              -- 근무지당 방법별 1개
+    UNIQUE (workplace_id, method_type),             -- 근무지당 방법별 1개
+    CONSTRAINT chk_vm_not_qr CHECK (method_type <> 'QR')  -- QR은 프리셋 카탈로그 전용
 );
 
 -- 6. 인증 방법별 설정값 (JSONB)
@@ -92,7 +94,8 @@ CREATE TABLE user_verification_overrides (
     created_at  TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ      NOT NULL DEFAULT NOW(),
 
-    UNIQUE (user_id, method_type)                   -- 유저당 방법별 1개
+    UNIQUE (user_id, method_type),                  -- 유저당 방법별 1개
+    CONSTRAINT chk_uvo_not_qr CHECK (method_type <> 'QR')  -- QR은 프리셋 카탈로그 전용
 );
 
 -- 8. 출퇴근 기록

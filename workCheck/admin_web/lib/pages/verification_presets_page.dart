@@ -26,6 +26,7 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
     'NFC_GPS',
     'BEACON',
     'BEACON_GPS',
+    'QR',
   ];
 
   List<VerificationPreset> _presets = []; // 현재 표시 중인 프리셋 목록
@@ -147,6 +148,8 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
         return 'Beacon';
       case 'BEACON_GPS':
         return 'Beacon + GPS';
+      case 'QR':
+        return 'QR';
       default:
         return methodType;
     }
@@ -423,6 +426,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     'GPS_QR',
     'BEACON',
     'BEACON_GPS',
+    'QR',
   ];
 
   late final TextEditingController _nameCtrl;
@@ -680,6 +684,8 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
         return 'Beacon';
       case 'BEACON_GPS':
         return 'Beacon + GPS';
+      case 'QR':
+        return 'QR';
       default:
         return methodType;
     }
@@ -954,7 +960,8 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
               const SizedBox(height: 16),
 
               // 부품 그룹별 동적 row 섹션
-              if (groups.isEmpty)
+              // QR 단독은 부품 row가 없으므로(QR 섹션만 사용) 안내 박스 생략
+              if (groups.isEmpty && !hasQr)
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -969,7 +976,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
               else
                 ...groups.map(_buildPartSection),
 
-              // QR 코드 섹션 (GPS_QR/WIFI_QR)
+              // QR 코드 섹션 (GPS_QR/WIFI_QR/QR 단독)
               if (hasQr) _buildQrCodesSection(),
 
               const SizedBox(height: 12),

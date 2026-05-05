@@ -5,8 +5,6 @@ import 'package:injectable/injectable.dart';
 import '../../../../core/error/failures.dart';
 import '../../../../core/usecases/usecase.dart';
 import '../../../auth/data/datasources/local/auth_local_datasource.dart';
-import '../../../verification/data/services/bluetooth_service.dart';
-import '../../../verification/data/services/nfc_service.dart';
 import '../../../verification/data/verification_manager.dart';
 import '../../../verification/domain/verification_method.dart';
 import '../../../workplace/domain/entities/workplace_config_entity.dart';
@@ -155,28 +153,8 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
       successMessage: null,
     ));
 
-    // NFC 인증 시 기대 태그 ID 목록 설정 (로컬 OR 매칭용)
-    // NFC 단독(nfc) + 복합(nfc_gps) 양쪽 config에서 nfc_targets 합산
-    final nfcStrategy = _verificationManager.getStrategy(VerificationMethod.nfc);
-    if (nfcStrategy is NfcVerificationService) {
-      nfcStrategy.expectedTagIds = _collectTargetField(
-        methods: const [VerificationMethod.nfc, VerificationMethod.nfcGps],
-        partKey: 'nfc_targets',
-        field: 'tag_id',
-      );
-    }
-
-    // Beacon 인증 시 타겟 UUID 목록 설정 (iOS CoreLocation 다중 Region ranging에 필요)
-    // Beacon 단독(beacon) + 복합(beacon_gps) 양쪽 config에서 beacon_targets 합산
-    final btStrategy = _verificationManager.getStrategy(VerificationMethod.bluetooth);
-    if (btStrategy is BluetoothVerificationService) {
-      btStrategy.targetUuids = _collectTargetField(
-        methods: const [VerificationMethod.bluetooth, VerificationMethod.beaconGps],
-        partKey: 'beacon_targets',
-        field: 'uuid',
-      );
-    }
-
+    // 인증 결과 판정은 모두 서버(VerificationService)가 수행한다.
+    // 클라이언트는 디바이스 스캔 결과를 그대로 verification_data에 담아 전송한다.
     final combinedData = <String, dynamic>{};
     for (final method in methods) {
       final verificationResult = await _verificationManager.verify(method);
@@ -250,48 +228,5 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
     emit(state.copyWith(
       availableMethods: methods,
     ));
-  }
-
-  /// 단독+복합 메서드의 config에서 동일 부품 필드값을 모두 합산 (중복 제거)
-  ///
-  /// 예) NFC 사전 비교용 tag_id 목록은 nfc 단독 config + nfc_gps 복합 config 양쪽에서 수집해야
-  /// 워크플레이스가 복합 메서드만 활성화한 경우에도 사전 비교가 동작한다.
-  List<String> _collectTargetField({
-    required List<VerificationMethod> methods,
-    required String partKey,
-    required String field,
-  }) {
-    final values = <String>{};
-    for (final method in methods) {
-      final config = _workplaceConfig?.getConfig(method);
-      if (config == null) continue;
-      var targets = _extractTargets(config, key: partKey);
-      if (targets.isEmpty) targets = _extractTargets(config);
-      values.addAll(targets.map((t) => t[field]).whereType<String>());
-    }
-    return values.toList();
-  }
-
-  /// config_data에서 타겟 배열을 추출 (신/구 schema 호환)
-  ///
-  /// - 신 schema: `{"targets": [{...}, ...]}` 또는 `{"nfc_targets": [...]}`/`{"beacon_targets": [...]}` 등
-  /// - 구 schema: 단일 dict (예: `{"tag_id": "..."}`) → 1개 target으로 감쌈
-  /// - 키가 존재하지만 List가 아니거나 비어있으면 빈 리스트 반환
-  List<Map<String, dynamic>> _extractTargets(
-    Map<String, dynamic>? config, {
-    String key = 'targets',
-  }) {
-    if (config == null) return const [];
-    final raw = config[key];
-    if (raw is List) {
-      return raw
-          .whereType<Map>()
-          .map((e) => e.cast<String, dynamic>())
-          .toList();
-    }
-    // 신 schema 키가 명시적으로 요청된 경우 (예: nfc_targets) 폴백 없음
-    if (key != 'targets') return const [];
-    // 구 schema 폴백: config 자체를 1개 target으로 취급
-    return [config];
   }
 }

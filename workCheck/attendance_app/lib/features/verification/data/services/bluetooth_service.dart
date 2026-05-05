@@ -23,10 +23,12 @@ class BluetoothVerificationService implements VerificationStrategy {
   // RSSI 기본 임계값 (이 값보다 약하면 무시)
   static const int defaultRssiThreshold = -80;
 
-  /// 스캔할 iBeacon UUID 목록 (서버 설정값, Bloc에서 인증 전에 설정)
-  /// iOS는 Region당 UUID 1개라 다중 Region으로 ranging을 시작한다.
-  /// Android는 List를 단순 확장하여 클라이언트 필터링은 서버 매칭으로 위임한다.
-  List<String> targetUuids = const [];
+  /// iOS CoreLocation ranging에 사용하는 기본 iBeacon UUID
+  ///
+  /// iOS는 Region 단위로만 ranging이 가능하므로 광범위 스캔용 기본 UUID가 필요하다.
+  /// 발견된 비콘의 매칭 판정은 서버에서 수행한다.
+  static const String _defaultIBeaconUuid =
+      'E2C56DB5-DFFB-48D2-B060-D0F5A71096E0';
 
   @override
   VerificationMethod get method => VerificationMethod.bluetooth;
@@ -140,21 +142,16 @@ class BluetoothVerificationService implements VerificationStrategy {
       await dchs.flutterBeacon.initializeScanning;
       debugPrint('[Beacon/iOS] 스캔 초기화 완료');
 
-      // 스캔할 Region 설정 (UUID 지정)
-      // iOS는 Region당 UUID 1개 → 다중 Region 생성
-      // targetUuids가 비어있으면 기본 iBeacon UUID 사용 (Region 1개)
-      final uuids = targetUuids.isNotEmpty
-          ? targetUuids
-          : <String>['E2C56DB5-DFFB-48D2-B060-D0F5A71096E0'];
-      debugPrint('[Beacon/iOS] 타겟 UUIDs: $uuids');
+      // 스캔할 Region 설정 (기본 iBeacon UUID 1개로 ranging)
+      // 클라이언트 사전 필터링 없이 광범위 스캔 후 결과를 서버 매칭에 위임한다.
+      debugPrint('[Beacon/iOS] 기본 UUID로 ranging: $_defaultIBeaconUuid');
 
-      final regions = <dchs.Region>[];
-      for (var i = 0; i < uuids.length; i++) {
-        regions.add(dchs.Region(
-          identifier: 'workcheck-beacon-$i',
-          proximityUUID: uuids[i],
-        ));
-      }
+      final regions = <dchs.Region>[
+        dchs.Region(
+          identifier: 'workcheck-beacon-0',
+          proximityUUID: _defaultIBeaconUuid,
+        ),
+      ];
 
       // 5초간 ranging (다중 Region 동시)
       final detectedBeacons = <Map<String, dynamic>>[];

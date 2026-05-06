@@ -133,9 +133,9 @@ INSERT INTO verification_configs (verification_method_id, config_data) VALUES
     -- WIFI_QR: WiFi 1개 + QR 1개
     (21, '{"targets": [{"ssid": "WorkCheck-HQ", "bssid": ""}], "qr_codes": ["WC-HQ-WQ-001"]}'),
     -- NFC: 태그 2개 멀티
-    (22, '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:AA:BB:CC:DD:EE:77"}]}'),
+    (22, '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:5E:55:37:C9:2A:81"}]}'),
     -- NFC_GPS: NFC 태그 2개 + GPS 1개(본사 좌표 폴백)
-    (23, '{"nfc_targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:AA:BB:CC:DD:EE:77"}], "gps_targets": [{"radius_meters": 200}]}'),
+    (23, '{"nfc_targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:5E:55:37:C9:2A:81"}], "gps_targets": [{"radius_meters": 200}]}'),
     -- BEACON: 비콘 2개 멀티 (Major 동일, Minor 다름)
     (24, '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}, {"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}]}'),
     -- BEACON_GPS: 비콘 1개 + GPS 1개(본사 좌표 폴백)
@@ -163,7 +163,7 @@ INSERT INTO verification_configs (verification_method_id, config_data) VALUES
 
 -- 마포지점 NFC (단일 태그)
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
-    (7, '{"targets": [{"tag_id": "04:AA:BB:CC:DD:EE:77"}]}');
+    (7, '{"targets": [{"tag_id": "04:5E:55:37:C9:2A:81"}]}');
 
 -- 비콘1 테스트지점 BEACON
 INSERT INTO verification_configs (verification_method_id, config_data) VALUES
@@ -188,9 +188,9 @@ INSERT INTO verification_configs (verification_method_id, config_data) VALUES
     -- WIFI_QR: WiFi 1개 + QR 1개
     (14, '{"targets": [{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}], "qr_codes": ["WC-ALL-WQ-001"]}'),
     -- NFC: 태그 2개 (멀티)
-    (15, '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:AA:BB:CC:DD:EE:77"}]}'),
+    (15, '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:5E:55:37:C9:2A:81"}]}'),
     -- NFC_GPS: 태그 2개 + GPS 1개
-    (16, '{"nfc_targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:AA:BB:CC:DD:EE:77"}], "gps_targets": [{"radius_meters": 200}]}'),
+    (16, '{"nfc_targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}, {"tag_id": "04:5E:55:37:C9:2A:81"}], "gps_targets": [{"radius_meters": 200}]}'),
     -- BEACON: 비콘 2개 (멀티)
     (17, '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}, {"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}]}'),
     -- BEACON_GPS: 비콘 1개 + GPS 1개
@@ -202,7 +202,7 @@ INSERT INTO verification_configs (verification_method_id, config_data) VALUES
 -- 프리셋은 단일 카탈로그 항목 → targets[] 배열에 1개만 담아 관리 (확장성 일관성)
 INSERT INTO verification_presets (id, name, method_type, config_data, memo) VALUES
     (1, '1',                 'NFC',    '{"targets": [{"tag_id": "04:E9:D8:3E:C8:2A:81"}]}',                                                                          '을지로지점 정문 NFC 태그'),
-    (2, '2',                 'NFC',    '{"targets": [{"tag_id": "04:AA:BB:CC:DD:EE:77"}]}',                                                                          '마포지점 보조 태그'),
+    (2, '2',                 'NFC',    '{"targets": [{"tag_id": "04:5E:55:37:C9:2A:81"}]}',                                                                          '마포지점 보조 태그'),
     (3, '회사 WiFi 5G',      'WIFI',   '{"targets": [{"ssid": "SK_WiFiGIGA8C8E_5G", "bssid": ""}]}',                                                                  '종합테스트센터 WiFi'),
     (4, '비콘1 (강남삼성)',   'BEACON', '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "rssi_threshold": -80}]}',     '비콘1 테스트지점'),
     (5, '비콘2 (강남봉은사)', 'BEACON', '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 52014, "rssi_threshold": -80}]}',     '비콘2 테스트지점'),

@@ -415,6 +415,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         final errorCode = state.errorCode;
         if (errorCode != null) {
           switch (errorCode) {
+            case 'NFC_VERIFICATION_FAILED':
+              // NFC 태그 불일치/누락 → NFC 전용 실패 모달
+              NfcCheckFailDialog.show(context);
+              break;
+            case 'GPS_VERIFICATION_FAILED':
+              // GPS 반경 밖/좌표 누락 → GPS 전용 실패 모달
+              ClockInUnavailableDialog.show(context);
+              break;
+            case 'WIFI_VERIFICATION_FAILED':
+              // WiFi SSID/BSSID 불일치 → WiFi 전용 실패 모달
+              WifiUnavailableDialog.show(context);
+              break;
             case 'BEACON_UUID_MISMATCH':
               BeaconMismatchDialog.show(context);
               break;

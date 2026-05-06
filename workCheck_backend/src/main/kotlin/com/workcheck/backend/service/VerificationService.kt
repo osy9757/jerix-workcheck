@@ -153,26 +153,60 @@ class VerificationService(
         }
 
         // method_type별 검증 (GPS는 근무지 좌표 사용)
+        // 실패 시 어떤 단계에서 실패했는지 식별 가능한 errorCode를 던져 앱에서 전용 모달 분기
         val wpLat = workplace.latitude
         val wpLon = workplace.longitude
-        val verified = when (matchedMethod.methodType) {
-            MethodType.GPS -> verifyGps(verificationData, configData, wpLat, wpLon)
-            MethodType.GPS_QR -> verifyGps(verificationData, configData, wpLat, wpLon) && verifyQr(verificationData, configData)
-            MethodType.WIFI -> verifyWifi(verificationData, configData)
-            MethodType.WIFI_QR -> verifyWifi(verificationData, configData) && verifyQr(verificationData, configData)
-            MethodType.NFC -> verifyNfc(verificationData, configData)
-            MethodType.NFC_GPS -> verifyNfc(verificationData, configData) && verifyGps(verificationData, configData, wpLat, wpLon)
-            MethodType.BEACON -> verifyBeacon(verificationData, configData)
-            MethodType.BEACON_GPS -> verifyBeacon(verificationData, configData) && verifyGps(verificationData, configData, wpLat, wpLon)
-            MethodType.QR -> false // QR 단독은 카탈로그 전용 - 인증 수단으로 사용 불가
-        }
-
-        if (!verified) {
-            throw IllegalArgumentException("인증 검증 실패")
+        when (matchedMethod.methodType) {
+            MethodType.GPS -> {
+                if (!verifyGps(verificationData, configData, wpLat, wpLon)) throwGpsFailed()
+            }
+            MethodType.GPS_QR -> {
+                if (!verifyGps(verificationData, configData, wpLat, wpLon)) throwGpsFailed()
+                if (!verifyQr(verificationData, configData)) throwQrFailed()
+            }
+            MethodType.WIFI -> {
+                if (!verifyWifi(verificationData, configData)) throwWifiFailed()
+            }
+            MethodType.WIFI_QR -> {
+                if (!verifyWifi(verificationData, configData)) throwWifiFailed()
+                if (!verifyQr(verificationData, configData)) throwQrFailed()
+            }
+            MethodType.NFC -> {
+                if (!verifyNfc(verificationData, configData)) throwNfcFailed()
+            }
+            MethodType.NFC_GPS -> {
+                if (!verifyNfc(verificationData, configData)) throwNfcFailed()
+                if (!verifyGps(verificationData, configData, wpLat, wpLon)) throwGpsFailed()
+            }
+            MethodType.BEACON -> {
+                // verifyBeacon은 자체적으로 BEACON_* errorCode를 던지므로 boolean 결과 별도 분기 불필요
+                verifyBeacon(verificationData, configData)
+            }
+            MethodType.BEACON_GPS -> {
+                verifyBeacon(verificationData, configData)
+                if (!verifyGps(verificationData, configData, wpLat, wpLon)) throwGpsFailed()
+            }
+            MethodType.QR -> {
+                // QR 단독은 카탈로그 전용 - 인증 수단으로 사용 불가
+                throw IllegalArgumentException("QR 단독은 인증 수단으로 사용할 수 없습니다")
+            }
         }
 
         return matchedMethod
     }
+
+    // 인증 방식별 실패 예외 헬퍼 - 앱에서 errorCode로 전용 모달 분기
+    private fun throwNfcFailed(): Nothing =
+        throw VerificationFailedException(VerificationErrorCode.NFC_VERIFICATION_FAILED, "NFC 인증 검증 실패")
+
+    private fun throwGpsFailed(): Nothing =
+        throw VerificationFailedException(VerificationErrorCode.GPS_VERIFICATION_FAILED, "GPS 인증 검증 실패")
+
+    private fun throwWifiFailed(): Nothing =
+        throw VerificationFailedException(VerificationErrorCode.WIFI_VERIFICATION_FAILED, "WiFi 인증 검증 실패")
+
+    private fun throwQrFailed(): Nothing =
+        throw VerificationFailedException(VerificationErrorCode.QR_VERIFICATION_FAILED, "QR 인증 검증 실패")
 
     // 앱의 verification_method 문자열 → 활성화된 VerificationMethod 매칭
     private fun findMatchingMethod(enabledMethods: List<VerificationMethod>, appMethod: String): VerificationMethod? {

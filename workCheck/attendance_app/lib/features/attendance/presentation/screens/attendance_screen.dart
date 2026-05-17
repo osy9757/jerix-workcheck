@@ -35,6 +35,10 @@ class AttendanceScreen extends StatefulWidget {
 
 class _AttendanceScreenState extends State<AttendanceScreen>
     with SingleTickerProviderStateMixin {
+  static const LatLng _fallbackMapPosition = LatLng(37.5419, 126.9498);
+  static const double _baseMarkerSize = 40;
+  static const int _defaultMapZoomLevel = 16;
+
   KakaoMapController? _mapController;
   String _userName = '';
 
@@ -47,8 +51,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   /// 현재 GPS 좌표
   LatLng? _currentLatLng;
 
-  /// 출근지 좌표 (서버 설정)
-  LatLng _workplaceLatLng = const LatLng(37.5419, 126.9498);
+  /// 지도에 표시할 출근지 좌표 (GPS 인증 설정이 있을 때만 사용)
+  LatLng? _workplaceLatLng;
+
+  /// 현재 지도에서 GPS 인증 위치를 표시해야 하는지 여부
+  bool _usesGpsOnMap = false;
 
   /// GPS 허용 반경 (미터)
   double? _gpsRadiusMeters;
@@ -59,6 +66,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   /// 반경 원 도형 (KakaoMap ShapeLayer)
   Polygon? _radiusPolygon;
+
+  /// 현위치 / 출근지 마커
+  Poi? _currentLocationPoi;
+  Poi? _destinationPoi;
+
+  /// 비동기 지도 갱신 충돌 방지 토큰
+  int _mapSyncToken = 0;
+
+  /// 마지막 적용된 마커 스케일
+  double _lastMarkerScale = 1.0;
 
   /// 마지막 원 스타일 업데이트 시간 (쓰로틀링용)
   DateTime _lastPulseUpdate = DateTime.now();
@@ -101,6 +118,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (mounted) {
         setState(() => _currentLatLng = latLng);
       }
+      unawaited(_syncMapIfReady());
 
       // 역지오코딩: 좌표 → 주소
       try {
@@ -141,29 +159,93 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final config = bloc.workplaceConfig;
     if (config == null) return;
 
-    // GPS 설정에서 출근지 좌표 + 허용 반경 가져오기
-    final gpsConfig = config.getConfig(VerificationMethod.gps);
-    if (gpsConfig != null) {
-      final lat = gpsConfig['latitude'] as double?;
-      final lng = gpsConfig['longitude'] as double?;
-      final radius = (gpsConfig['radius_meters'] as num?)?.toDouble();
-      if (lat != null && lng != null) {
-        _workplaceLatLng = LatLng(lat, lng);
-        _gpsRadiusMeters = radius;
+    final serverEnabledMethods = bloc.state.serverEnabledMethods;
+    final mapMethods = serverEnabledMethods.isNotEmpty
+        ? serverEnabledMethods
+        : config.enabledMethods;
+    final usesGps = mapMethods.any(
+      (method) => method.components.contains(VerificationMethod.gps),
+    );
+    final gpsTarget = usesGps ? _resolveGpsMapTarget() : null;
 
-        // 출근지 좌표로 역지오코딩
-        _reverseGeocodeWorkplace(lat, lng);
+    _usesGpsOnMap = gpsTarget != null;
+    _workplaceLatLng = gpsTarget?.position;
+    _gpsRadiusMeters = gpsTarget?.radiusMeters;
 
-        // 지도 준비 완료 상태면 반경 원 추가
-        _addRadiusCircleIfReady();
+    final address = gpsTarget?.address;
+    if (address != null && address.isNotEmpty) {
+      if (mounted) setState(() => _workplaceAddress = address);
+    } else if (!_usesGpsOnMap && mounted) {
+      setState(() => _workplaceAddress = '-');
+    }
+
+    if (gpsTarget != null) {
+      _reverseGeocodeWorkplace(
+        gpsTarget.position.latitude,
+        gpsTarget.position.longitude,
+      );
+    }
+    _syncMapIfReady();
+  }
+
+  /// 활성 인증 설정에서 지도에 표시할 GPS 타겟을 추출
+  _GpsMapTarget? _resolveGpsMapTarget() {
+    final config = context.read<AttendanceBloc>().workplaceConfig;
+    if (config == null) return null;
+
+    const gpsMethodOrder = [
+      VerificationMethod.gps,
+      VerificationMethod.gpsQr,
+      VerificationMethod.nfcGps,
+      VerificationMethod.beaconGps,
+    ];
+
+    for (final method in gpsMethodOrder) {
+      final methodConfig = config.getConfig(method);
+      if (methodConfig == null) continue;
+
+      final gpsKeys = switch (method) {
+        VerificationMethod.nfcGps || VerificationMethod.beaconGps =>
+          ['gps_targets', 'targets'],
+        _ => ['targets', 'gps_targets'],
+      };
+
+      final target = _targetFromConfig(methodConfig, gpsKeys);
+      if (target != null) return target;
+    }
+
+    return null;
+  }
+
+  _GpsMapTarget? _targetFromConfig(
+    Map<String, dynamic> config,
+    List<String> targetKeys,
+  ) {
+    for (final key in targetKeys) {
+      final rawTargets = config[key];
+      if (rawTargets is! List) continue;
+
+      for (final rawTarget in rawTargets) {
+        if (rawTarget is Map) {
+          final target = _targetFromMap(Map<String, dynamic>.from(rawTarget));
+          if (target != null) return target;
+        }
       }
     }
 
-    // 출근지 주소가 config에 직접 있으면 사용
-    final address = gpsConfig?['address'] as String?;
-    if (address != null && address.isNotEmpty && mounted) {
-      setState(() => _workplaceAddress = address);
-    }
+    return _targetFromMap(config);
+  }
+
+  _GpsMapTarget? _targetFromMap(Map<String, dynamic> raw) {
+    final lat = (raw['latitude'] as num?)?.toDouble();
+    final lng = (raw['longitude'] as num?)?.toDouble();
+    if (lat == null || lng == null) return null;
+
+    return _GpsMapTarget(
+      position: LatLng(lat, lng),
+      radiusMeters: (raw['radius_meters'] as num?)?.toDouble(),
+      address: raw['address'] as String?,
+    );
   }
 
   /// 출근지 좌표 역지오코딩
@@ -186,19 +268,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  /// 지도 + GPS 설정이 모두 준비되면 반경 원 추가
-  void _addRadiusCircleIfReady() {
-    if (_mapController != null && _gpsRadiusMeters != null) {
-      _addRadiusCircle(_mapController!);
-    }
-  }
-
   /// GPS 허용 반경 파란색 원 추가 (KakaoMap ShapeLayer)
   Future<void> _addRadiusCircle(KakaoMapController controller) async {
     final radius = _gpsRadiusMeters;
-    if (radius == null || radius <= 0) return;
+    final workplace = _workplaceLatLng;
+    if (!_usesGpsOnMap || radius == null || radius <= 0 || workplace == null) {
+      await _removeRadiusCircle();
+      return;
+    }
     // 이미 추가된 경우 스킵
-    if (_radiusPolygon != null) return;
+    if (_radiusPolygon != null) {
+      await _radiusPolygon!.changePosition(CirclePoint(radius, workplace));
+      return;
+    }
 
     try {
       final shapeLayer = await controller.addShapeLayer('radius_circle');
@@ -208,12 +290,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         strokeColor: Colors.blue.withValues(alpha: 0.4),
       );
       _radiusPolygon = await shapeLayer.addPolygonShape(
-        CirclePoint(radius, _workplaceLatLng),
+        CirclePoint(radius, workplace),
         style,
         id: 'gps_radius',
       );
     } catch (e) {
       debugPrint('[KakaoMap] 반경 원 추가 오류: $e');
+    }
+  }
+
+  Future<void> _removeRadiusCircle() async {
+    final polygon = _radiusPolygon;
+    if (polygon == null) return;
+    _radiusPolygon = null;
+    try {
+      await polygon.remove();
+    } catch (e) {
+      debugPrint('[KakaoMap] 반경 원 제거 오류: $e');
     }
   }
 
@@ -236,83 +329,239 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     polygon.changeStyle(newStyle);
   }
 
-  /// 지도 마커 설정 (현위치 + 출근지)
+  /// 지도 상태 동기화 (현위치 중심 또는 현위치+근무지 fit)
+  Future<void> _syncMapIfReady() async {
+    final controller = _mapController;
+    final currentLocation = _currentLatLng;
+    if (controller == null || currentLocation == null) return;
+
+    final token = ++_mapSyncToken;
+    try {
+      await _configureMapGestures(controller);
+      if (token != _mapSyncToken) return;
+
+      await _upsertCurrentLocationPoi(controller, currentLocation);
+      if (token != _mapSyncToken) return;
+
+      final workplace = _usesGpsOnMap ? _workplaceLatLng : null;
+      if (workplace == null) {
+        await _removeDestinationPoi();
+        await _removeRadiusCircle();
+        await controller.moveCamera(
+          CameraUpdate.newCenterPosition(
+            currentLocation,
+            zoomLevel: _defaultMapZoomLevel,
+          ),
+        );
+        await _updateMarkerScaleForCurrentZoom(controller);
+        return;
+      }
+
+      await _upsertDestinationPoi(controller, workplace);
+      if (token != _mapSyncToken) return;
+
+      await _addRadiusCircle(controller);
+      await _fitMapToMarkers(controller, currentLocation, workplace);
+      await _updateMarkerScaleForCurrentZoom(controller);
+    } catch (e) {
+      debugPrint('[KakaoMap] 지도 동기화 오류: $e');
+    }
+  }
+
+  Future<void> _configureMapGestures(KakaoMapController controller) async {
+    final gestures = [
+      GestureType.pan,
+      GestureType.zoom,
+      GestureType.rotateZoom,
+      GestureType.twoFingerSingleTap,
+      GestureType.oneFingerZoom,
+      GestureType.oneFingerDoubleTap,
+    ];
+    for (final gesture in gestures) {
+      try {
+        await controller.setGesture(gesture, true);
+      } catch (e) {
+        debugPrint('[KakaoMap] 제스처 활성화 오류($gesture): $e');
+      }
+    }
+  }
+
+  Future<KImage> _markerImage(String assetPath, double size) {
+    return KImage.fromWidget(
+      SvgPicture.asset(
+        assetPath,
+        width: size,
+        height: size,
+      ),
+      Size(size, size),
+      pixelRatio: 2.0,
+      context: context,
+    );
+  }
+
+  Future<PoiStyle> _markerStyle(String assetPath) async {
+    final style = PoiStyle(
+      icon: await _markerImage(assetPath, 32),
+      anchor: const KPoint(0.5, 1.0),
+      zoomLevel: 0,
+    );
+    style.addStyle(
+      zoomLevel: 15,
+      icon: await _markerImage(assetPath, _baseMarkerSize),
+      anchor: const KPoint(0.5, 1.0),
+    );
+    style.addStyle(
+      zoomLevel: 17,
+      icon: await _markerImage(assetPath, 48),
+      anchor: const KPoint(0.5, 1.0),
+    );
+    return style;
+  }
+
+  Future<void> _upsertCurrentLocationPoi(
+    KakaoMapController controller,
+    LatLng position,
+  ) async {
+    final existing = _currentLocationPoi;
+    if (existing != null) {
+      await existing.move(position);
+      return;
+    }
+
+    _currentLocationPoi = await controller.labelLayer.addPoi(
+      position,
+      style: await _markerStyle('assets/icons/current_location.svg'),
+      id: 'current_location',
+    );
+  }
+
+  Future<void> _upsertDestinationPoi(
+    KakaoMapController controller,
+    LatLng position,
+  ) async {
+    final existing = _destinationPoi;
+    if (existing != null) {
+      await existing.move(position);
+      return;
+    }
+
+    _destinationPoi = await controller.labelLayer.addPoi(
+      position,
+      style: await _markerStyle('assets/icons/destination.svg'),
+      id: 'destination',
+    );
+  }
+
+  Future<void> _removeDestinationPoi() async {
+    final poi = _destinationPoi;
+    if (poi == null) return;
+    _destinationPoi = null;
+    try {
+      await poi.remove();
+    } catch (e) {
+      debugPrint('[KakaoMap] 출근지 마커 제거 오류: $e');
+    }
+  }
+
+  Future<void> _fitMapToMarkers(
+    KakaoMapController controller,
+    LatLng currentLocation,
+    LatLng workplace,
+  ) async {
+    final padding = _markerSafePadding();
+    await controller.moveCamera(
+      CameraUpdate.fitMapPoints(
+        [workplace, currentLocation],
+        padding: padding,
+      ),
+    );
+
+    // fitMapPoints는 좌표 기준이므로 마커 이미지 외곽이 잘리지 않도록 한 번 더 검증한다.
+    final hasSafeBounds = await _markersFitInsideViewport(
+      controller,
+      [workplace, currentLocation],
+      padding,
+    );
+    if (!hasSafeBounds) {
+      await controller.moveCamera(
+        CameraUpdate.fitMapPoints(
+          [workplace, currentLocation],
+          padding: padding + 36,
+        ),
+      );
+    }
+  }
+
+  int _markerSafePadding() {
+    final markerExtent = (_baseMarkerSize * _lastMarkerScale).ceil();
+    final verticalPadding = (markerExtent * 2.2).ceil();
+    final minPadding = 96.w.ceil();
+    return verticalPadding > minPadding ? verticalPadding : minPadding;
+  }
+
+  Future<bool> _markersFitInsideViewport(
+    KakaoMapController controller,
+    List<LatLng> positions,
+    int padding,
+  ) async {
+    final mapWidth = (343.w - 16.w).round();
+    final mapHeight = 230.h.round();
+    final markerWidth = (_baseMarkerSize * _lastMarkerScale).ceil();
+    final markerHeight = (_baseMarkerSize * _lastMarkerScale).ceil();
+    final leftRightMargin = markerWidth ~/ 2 + 8;
+    const topMargin = 8;
+    final bottomMargin = markerHeight + 8;
+
+    for (final position in positions) {
+      final point = await controller.toScreenPoint(position);
+      if (point == null) return false;
+      if (point.x < leftRightMargin ||
+          point.x > mapWidth - leftRightMargin ||
+          point.y < topMargin ||
+          point.y > mapHeight - bottomMargin) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<void> _updateMarkerScaleForCurrentZoom(
+    KakaoMapController controller,
+  ) async {
+    try {
+      final camera = await controller.getCameraPosition();
+      _updateMarkerScale(camera.zoomLevel);
+    } catch (e) {
+      debugPrint('[KakaoMap] 마커 스케일 갱신 오류: $e');
+    }
+  }
+
+  void _updateMarkerScale(int zoomLevel) {
+    _lastMarkerScale = _markerScaleForZoom(zoomLevel);
+  }
+
+  double _markerScaleForZoom(int zoomLevel) {
+    final rawScale = 0.7 + ((zoomLevel - 13) * 0.1);
+    return rawScale.clamp(0.75, 1.35).toDouble();
+  }
+
+  /// 지도 마커 설정 (현위치 + 필요한 경우 출근지)
   Future<void> _setupMapMarkers(KakaoMapController controller) async {
     try {
-      final destination = _workplaceLatLng;
-
-      // 현재 GPS 위치 (_currentLatLng 공유, 없으면 새로 조회)
-      LatLng currentLocation;
-      if (_currentLatLng != null) {
-        currentLocation = _currentLatLng!;
-      } else {
-        try {
-          final position = await Geolocator.getCurrentPosition(
-            locationSettings: const LocationSettings(
-              accuracy: LocationAccuracy.high,
-            ),
-          );
-          currentLocation = LatLng(position.latitude, position.longitude);
-          if (mounted) {
-            setState(() => _currentLatLng = currentLocation);
-          }
-        } catch (e) {
-          debugPrint('[KakaoMap] GPS 오류: $e');
-          currentLocation = destination;
+      if (_currentLatLng == null) {
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+          ),
+        );
+        if (mounted) {
+          setState(() {
+            _currentLatLng = LatLng(position.latitude, position.longitude);
+          });
         }
       }
 
-      final destinationIcon = await KImage.fromWidget(
-        SvgPicture.asset(
-          'assets/icons/destination.svg',
-          width: 40,
-          height: 40,
-        ),
-        const Size(40, 40),
-        pixelRatio: 2.0,
-        context: context,
-      );
-
-      final currentLocationIcon = await KImage.fromWidget(
-        SvgPicture.asset(
-          'assets/icons/current_location.svg',
-          width: 40,
-          height: 40,
-        ),
-        const Size(40, 40),
-        pixelRatio: 2.0,
-        context: context,
-      );
-
-      await controller.labelLayer.addPoi(
-        destination,
-        style: PoiStyle(
-          icon: destinationIcon,
-          anchor: const KPoint(0.5, 1.0),
-        ),
-        id: 'destination',
-      );
-
-      await controller.labelLayer.addPoi(
-        currentLocation,
-        style: PoiStyle(
-          icon: currentLocationIcon,
-          anchor: const KPoint(0.5, 1.0),
-        ),
-        id: 'current_location',
-      );
-
-      // 마커 아이콘(40px * pixelRatio 2.0 = 80px)이 잘리지 않도록 패딩 확보
-      // 지도 높이(230.h)에서 상하 마커가 모두 보이려면 충분한 여유 필요
-      await controller.moveCamera(
-        CameraUpdate.fitMapPoints(
-          [destination, currentLocation],
-          padding: 120,
-        ),
-      );
-
-      // GPS 허용 반경 원 추가
-      _addRadiusCircleIfReady();
+      await _syncMapIfReady();
     } catch (e) {
       debugPrint('[KakaoMap] 마커 추가 오류: $e');
     }
@@ -835,12 +1084,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 borderRadius: BorderRadius.circular(10.r),
                 child: KakaoMap(
                   option: KakaoMapOption(
-                    position: _currentLatLng ?? _workplaceLatLng,
-                    zoomLevel: 16,
+                    position: _currentLatLng ??
+                        _workplaceLatLng ??
+                        _fallbackMapPosition,
+                    zoomLevel: _defaultMapZoomLevel,
                   ),
                   onMapReady: (controller) {
                     _mapController = controller;
                     _setupMapMarkers(controller);
+                  },
+                  onCameraMoveEnd: (position, gestureType) {
+                    _updateMarkerScale(position.zoomLevel);
                   },
                   onMapError: (error) {
                     debugPrint('[KakaoMap] 에러: $error');
@@ -879,4 +1133,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       ),
     );
   }
+}
+
+class _GpsMapTarget {
+  const _GpsMapTarget({
+    required this.position,
+    this.radiusMeters,
+    this.address,
+  });
+
+  final LatLng position;
+  final double? radiusMeters;
+  final String? address;
 }

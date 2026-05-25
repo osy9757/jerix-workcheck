@@ -2,18 +2,18 @@ package com.workcheck.backend.entity
 
 import io.hypersistence.utils.hibernate.type.json.JsonBinaryType
 import jakarta.persistence.*
-import org.hibernate.annotations.JdbcTypeCode
 import org.hibernate.annotations.Type
-import org.hibernate.type.SqlTypes
 import java.time.OffsetDateTime
 
-// 유저별 인증 방법 오버라이드 엔티티
+// 유저별 인증 방법 (v2 통합 테이블)
+// 한 유저가 5개 단위 프리셋(GPS/WIFI/NFC/BEACON/QR) 각각에 대해 토글/설정값을 보유.
+// is_enabled=TRUE 인 row 들은 AND 결합으로 검증된다.
 @Entity
 @Table(
-    name = "user_verification_overrides",
+    name = "user_verification_methods",
     uniqueConstraints = [UniqueConstraint(columnNames = ["user_id", "method_type"])]
 )
-class UserVerificationOverride(
+class UserVerificationMethod(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long = 0,
@@ -23,12 +23,11 @@ class UserVerificationOverride(
     val user: User,
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "method_type", nullable = false, columnDefinition = "method_type_enum")
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "method_type", nullable = false, length = 16)
     val methodType: MethodType,
 
     @Column(name = "is_enabled", nullable = false)
-    var isEnabled: Boolean = true,
+    var isEnabled: Boolean = false,
 
     @Type(JsonBinaryType::class)
     @Column(name = "config_data", nullable = false, columnDefinition = "jsonb")

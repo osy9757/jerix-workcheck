@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/models.dart';
 import '../utils/verification_targets.dart';
+import '../widgets/gps_picker_dialog.dart';
 
 /// 인증 프리셋 페이지
 /// - NFC/WiFi/GPS/Beacon 등 자주 쓰이는 인증값을 이름 붙여 저장하는 카탈로그
@@ -17,15 +18,12 @@ class VerificationPresetsPage extends StatefulWidget {
 
 class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
   // 필터 칩에 사용하는 인증 수단 목록 (전체 = null)
+  // api_contract v2: 5-enum 만 지원
   static const List<String> _allMethodTypes = [
     'GPS',
-    'GPS_QR',
     'WIFI',
-    'WIFI_QR',
     'NFC',
-    'NFC_GPS',
     'BEACON',
-    'BEACON_GPS',
     'QR',
   ];
 
@@ -129,25 +127,17 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
     }
   }
 
-  /// method_type을 한글 이름으로 변환
+  /// method_type을 한글 이름으로 변환 (v2: 5-enum만)
   String _displayName(String methodType) {
     switch (methodType) {
       case 'GPS':
         return 'GPS';
-      case 'GPS_QR':
-        return 'GPS + QR';
       case 'WIFI':
         return 'WiFi';
-      case 'WIFI_QR':
-        return 'WiFi + QR';
       case 'NFC':
         return 'NFC';
-      case 'NFC_GPS':
-        return 'NFC + GPS';
       case 'BEACON':
         return 'Beacon';
-      case 'BEACON_GPS':
-        return 'Beacon + GPS';
       case 'QR':
         return 'QR';
       default:
@@ -171,7 +161,7 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
       summaries.add('${partDisplayNameOf(g.partType)} ${targets.length}개');
     }
 
-    // QR 코드 개수 (GPS_QR/WIFI_QR만)
+    // QR 코드 개수 (v2: QR primitive만)
     if (hasQrCodesSection(p.methodType)) {
       final qrs = extractQrCodes(p.configData);
       if (qrs.isNotEmpty) {
@@ -416,16 +406,12 @@ class _PresetEditDialog extends StatefulWidget {
 }
 
 class _PresetEditDialogState extends State<_PresetEditDialog> {
-  // 지원 인증 수단 (드롭다운 옵션)
+  // 지원 인증 수단 (드롭다운 옵션, v2: 5-enum)
   static const List<String> _supportedTypes = [
-    'NFC',
-    'NFC_GPS',
-    'WIFI',
-    'WIFI_QR',
     'GPS',
-    'GPS_QR',
+    'WIFI',
+    'NFC',
     'BEACON',
-    'BEACON_GPS',
     'QR',
   ];
 
@@ -551,6 +537,30 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     setState(() => _qrCodeCtrls.add(TextEditingController(text: '')));
   }
 
+  /// GPS 지도 픽업 다이얼로그 호출 → 결과를 row 컨트롤러에 반영
+  Future<void> _openGpsPicker(PartGroup group, int i) async {
+    final row = _rowsByKey[group.configKey]?[i];
+    if (row == null) return;
+    final latText = row['latitude']?.text.trim() ?? '';
+    final lngText = row['longitude']?.text.trim() ?? '';
+    final radiusText = row['radius_meters']?.text.trim() ?? '';
+    final result = await showDialog<GpsPickResult>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => GpsPickerDialog(
+        initialLat: double.tryParse(latText),
+        initialLng: double.tryParse(lngText),
+        initialRadiusMeters: int.tryParse(radiusText),
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      row['latitude']?.text = result.latitude.toStringAsFixed(6);
+      row['longitude']?.text = result.longitude.toStringAsFixed(6);
+      row['radius_meters']?.text = result.radiusMeters.toString();
+    });
+  }
+
   /// QR 코드 삭제 (최소 1개 유지)
   void _removeQr(int index) {
     setState(() {
@@ -587,7 +597,9 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     return m;
   }
 
-  /// 신 schema로 직렬화 (빈 row는 제외)
+  /// v2 schema로 직렬화 (빈 row는 제외)
+  /// - BEACON rssi_threshold는 서버에서 자동 계산 (클라이언트 계산 안 함)
+  /// - QR codes 키는 'codes' (v2 명세)
   Map<String, dynamic> _buildConfigData() {
     final config = <String, dynamic>{};
     final groups = partGroupsFor(_methodType);
@@ -597,7 +609,8 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
       final arr = <Map<String, dynamic>>[];
       for (final row in list) {
         final m = _rowToMap(row, fields);
-        if (m.isNotEmpty) arr.add(m);
+        if (m.isEmpty) continue;
+        arr.add(m);
       }
       config[group.configKey] = arr;
     }
@@ -606,7 +619,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
           .map((c) => c.text.trim())
           .where((s) => s.isNotEmpty)
           .toList();
-      config['qr_codes'] = codes;
+      config['codes'] = codes; // v2: 'codes' (구버전: 'qr_codes')
     }
     return config;
   }
@@ -665,25 +678,17 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     }
   }
 
-  /// 한글 라벨 (인증 수단 표시명)
+  /// 한글 라벨 (인증 수단 표시명, v2: 5-enum)
   String _displayName(String methodType) {
     switch (methodType) {
       case 'GPS':
         return 'GPS';
-      case 'GPS_QR':
-        return 'GPS + QR';
       case 'WIFI':
         return 'WiFi';
-      case 'WIFI_QR':
-        return 'WiFi + QR';
       case 'NFC':
         return 'NFC';
-      case 'NFC_GPS':
-        return 'NFC + GPS';
       case 'BEACON':
         return 'Beacon';
-      case 'BEACON_GPS':
-        return 'Beacon + GPS';
       case 'QR':
         return 'QR';
       default:
@@ -764,6 +769,17 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                         ),
                       ),
                       const Spacer(),
+                      // GPS 부품: 지도에서 좌표 픽업
+                      if (group.partType == 'GPS')
+                        TextButton.icon(
+                          icon: const Icon(Icons.map_outlined, size: 18),
+                          label: const Text('지도에서 선택'),
+                          onPressed: () => _openGpsPicker(group, i),
+                          style: TextButton.styleFrom(
+                            foregroundColor: _primary,
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ),
                       IconButton(
                         icon: const Icon(Icons.delete_outline, size: 20),
                         tooltip: rows.length == 1 ? '값 비우기' : '이 row 삭제',

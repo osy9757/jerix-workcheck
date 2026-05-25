@@ -6,29 +6,31 @@ part of 'attendance_model.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
-_$AttendanceModelImpl _$$AttendanceModelImplFromJson(
-        Map<String, dynamic> json) =>
-    _$AttendanceModelImpl(
+_AttendanceModel _$AttendanceModelFromJson(Map<String, dynamic> json) =>
+    _AttendanceModel(
       id: (json['id'] as num).toInt(),
       type: json['type'] as String,
       timestamp: json['timestamp'] as String,
       verificationMethod: json['verification_method'] as String,
+      verifiedMethods: (json['verified_methods'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          const [],
       verificationData: json['verification_data'] as Map<String, dynamic>,
     );
 
-Map<String, dynamic> _$$AttendanceModelImplToJson(
-        _$AttendanceModelImpl instance) =>
+Map<String, dynamic> _$AttendanceModelToJson(_AttendanceModel instance) =>
     <String, dynamic>{
       'id': instance.id,
       'type': instance.type,
       'timestamp': instance.timestamp,
       'verification_method': instance.verificationMethod,
+      'verified_methods': instance.verifiedMethods,
       'verification_data': instance.verificationData,
     };
 
-_$TodayStatusModelImpl _$$TodayStatusModelImplFromJson(
-        Map<String, dynamic> json) =>
-    _$TodayStatusModelImpl(
+_TodayStatusModel _$TodayStatusModelFromJson(Map<String, dynamic> json) =>
+    _TodayStatusModel(
       clockIn: json['clock_in'] == null
           ? null
           : AttendanceModel.fromJson(json['clock_in'] as Map<String, dynamic>),
@@ -37,46 +39,56 @@ _$TodayStatusModelImpl _$$TodayStatusModelImplFromJson(
           : AttendanceModel.fromJson(json['clock_out'] as Map<String, dynamic>),
     );
 
-Map<String, dynamic> _$$TodayStatusModelImplToJson(
-        _$TodayStatusModelImpl instance) =>
+Map<String, dynamic> _$TodayStatusModelToJson(_TodayStatusModel instance) =>
     <String, dynamic>{
       'clock_in': instance.clockIn,
       'clock_out': instance.clockOut,
     };
 
-_$RegisterAttendanceRequestImpl _$$RegisterAttendanceRequestImplFromJson(
+_AttendanceInitModel _$AttendanceInitModelFromJson(Map<String, dynamic> json) =>
+    _AttendanceInitModel(
+      requiredMethods: (json['required_methods'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          const [],
+      configs: json['configs'] as Map<String, dynamic>? ?? const {},
+    );
+
+Map<String, dynamic> _$AttendanceInitModelToJson(
+        _AttendanceInitModel instance) =>
+    <String, dynamic>{
+      'required_methods': instance.requiredMethods,
+      'configs': instance.configs,
+    };
+
+_AttendanceSubmitRequest _$AttendanceSubmitRequestFromJson(
         Map<String, dynamic> json) =>
-    _$RegisterAttendanceRequestImpl(
-      type: json['type'] as String,
-      verificationMethod: json['verification_method'] as String,
+    _AttendanceSubmitRequest(
       verificationData: json['verification_data'] as Map<String, dynamic>,
     );
 
-Map<String, dynamic> _$$RegisterAttendanceRequestImplToJson(
-        _$RegisterAttendanceRequestImpl instance) =>
+Map<String, dynamic> _$AttendanceSubmitRequestToJson(
+        _AttendanceSubmitRequest instance) =>
     <String, dynamic>{
-      'type': instance.type,
-      'verification_method': instance.verificationMethod,
       'verification_data': instance.verificationData,
     };
 
-_$HistoryModelImpl _$$HistoryModelImplFromJson(Map<String, dynamic> json) =>
-    _$HistoryModelImpl(
+_HistoryModel _$HistoryModelFromJson(Map<String, dynamic> json) =>
+    _HistoryModel(
       records: (json['records'] as List<dynamic>)
           .map((e) => DailyRecordModel.fromJson(e as Map<String, dynamic>))
           .toList(),
       total: (json['total'] as num).toInt(),
     );
 
-Map<String, dynamic> _$$HistoryModelImplToJson(_$HistoryModelImpl instance) =>
+Map<String, dynamic> _$HistoryModelToJson(_HistoryModel instance) =>
     <String, dynamic>{
       'records': instance.records,
       'total': instance.total,
     };
 
-_$DailyRecordModelImpl _$$DailyRecordModelImplFromJson(
-        Map<String, dynamic> json) =>
-    _$DailyRecordModelImpl(
+_DailyRecordModel _$DailyRecordModelFromJson(Map<String, dynamic> json) =>
+    _DailyRecordModel(
       date: json['date'] as String,
       clockIn: json['clock_in'] == null
           ? null
@@ -86,8 +98,7 @@ _$DailyRecordModelImpl _$$DailyRecordModelImplFromJson(
           : AttendanceModel.fromJson(json['clock_out'] as Map<String, dynamic>),
     );
 
-Map<String, dynamic> _$$DailyRecordModelImplToJson(
-        _$DailyRecordModelImpl instance) =>
+Map<String, dynamic> _$DailyRecordModelToJson(_DailyRecordModel instance) =>
     <String, dynamic>{
       'date': instance.date,
       'clock_in': instance.clockIn,

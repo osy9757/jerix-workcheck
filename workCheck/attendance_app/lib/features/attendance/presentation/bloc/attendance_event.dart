@@ -1,7 +1,7 @@
 part of 'attendance_bloc.dart';
 
 @freezed
-class AttendanceEvent with _$AttendanceEvent {
+sealed class AttendanceEvent with _$AttendanceEvent {
   /// 화면 초기 로드 - 오늘 출퇴근 상태 조회
   const factory AttendanceEvent.started() = AttendanceStarted;
 

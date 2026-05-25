@@ -1,17 +1,15 @@
-/// 출퇴근 인증 방법 (단일 5개 + 복합 4개)
+/// 출퇴근 인증 방법 (5개 단일 method)
+///
+/// PPT 기반 인증 리팩토링(v2)으로 합성 enum(`gpsQr`/`wifiQr`/`nfcGps`/`beaconGps`)은
+/// 폐기되었다. 다중 인증은 서버측 user_verification_methods 다수 활성 + AND 결합으로
+/// 표현하며, 앱은 각 단일 method 데이터를 method 키 맵으로 묶어 한 번에 전송한다.
 enum VerificationMethod {
-  // 단일 인증
   gps('GPS 위치', 'gps'),
   qr('QR코드 스캔', 'qr'),
   nfc('NFC 태그', 'nfc'),
-  // 백엔드는 MethodType.BEACON을 'beacon' 키로 응답/요청하므로 'beacon'으로 통일
+  // 백엔드 MethodType.BEACON 을 'beacon' 키로 송수신
   bluetooth('블루투스 비콘', 'beacon'),
-  wifi('WiFi', 'wifi'),
-  // 복합 인증
-  gpsQr('GPS + QR코드', 'gps_qr'),
-  wifiQr('WiFi + QR코드', 'wifi_qr'),
-  nfcGps('NFC + GPS', 'nfc_gps'),
-  beaconGps('비콘 + GPS', 'beacon_gps');
+  wifi('WiFi', 'wifi');
 
   final String label;
 
@@ -20,19 +18,7 @@ enum VerificationMethod {
 
   const VerificationMethod(this.label, this.apiName);
 
-  /// 복합 인증 여부
-  bool get isComposite => [gpsQr, wifiQr, nfcGps, beaconGps].contains(this);
-
-  /// 복합 인증의 구성 요소 반환 (단일 인증은 자기 자신을 반환)
-  List<VerificationMethod> get components => switch (this) {
-        gpsQr => [gps, qr],
-        wifiQr => [wifi, qr],
-        nfcGps => [nfc, gps],
-        beaconGps => [bluetooth, gps],
-        _ => [this],
-      };
-
-  /// 백엔드 API 이름 → enum 변환
+  /// 백엔드 API 이름 → enum 변환 (대소문자 무관)
   static VerificationMethod? fromApiName(String name) {
     return switch (name.toLowerCase()) {
       'gps' => VerificationMethod.gps,
@@ -40,10 +26,6 @@ enum VerificationMethod {
       'nfc' => VerificationMethod.nfc,
       'bluetooth' || 'beacon' => VerificationMethod.bluetooth,
       'wifi' => VerificationMethod.wifi,
-      'gps_qr' => VerificationMethod.gpsQr,
-      'wifi_qr' => VerificationMethod.wifiQr,
-      'nfc_gps' => VerificationMethod.nfcGps,
-      'beacon_gps' => VerificationMethod.beaconGps,
       _ => null,
     };
   }

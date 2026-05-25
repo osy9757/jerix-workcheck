@@ -18,10 +18,9 @@ class WebConfig(
             .allowedHeaders("*")
     }
 
-    // JWT 인증 인터셉터 등록 - 출퇴근 + 근무지 설정 API에 적용
+    // JWT 인증 인터셉터 등록 - 출퇴근 API에만 적용 (v2: workplace 엔드포인트 폐기)
     override fun addInterceptors(registry: InterceptorRegistry) {
         registry.addInterceptor(jwtAuthInterceptor)
             .addPathPatterns("/api/v1/attendance/**")
-            .addPathPatterns("/api/v1/workplace/config")
     }
 }

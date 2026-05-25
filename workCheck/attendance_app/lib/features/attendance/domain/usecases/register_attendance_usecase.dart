@@ -4,48 +4,70 @@ import 'package:injectable/injectable.dart';
 
 import '../../../../core/error/failures.dart';
 import '../../../../core/usecases/usecase.dart';
-import '../../../verification/domain/verification_method.dart';
 import '../entities/attendance_entity.dart';
+import '../entities/attendance_init_entity.dart';
 import '../entities/attendance_type.dart';
 import '../repositories/attendance_repository.dart';
 
-/// 출퇴근 등록 유스케이스
+/// 출퇴근 init 유스케이스 (1차)
+///
+/// 서버가 안내하는 required_methods + configs를 조회한다.
 @lazySingleton
-class RegisterAttendanceUseCase
-    implements UseCase<AttendanceEntity, RegisterAttendanceParams> {
+class InitAttendanceUseCase
+    implements UseCase<AttendanceInitEntity, InitAttendanceParams> {
   final AttendanceRepository _repository;
 
-  const RegisterAttendanceUseCase(this._repository);
+  const InitAttendanceUseCase(this._repository);
 
-  /// 파라미터를 받아 레포지터리의 register를 호출
+  @override
+  Future<Either<Failure, AttendanceInitEntity>> call(
+      InitAttendanceParams params) {
+    return _repository.init(type: params.type);
+  }
+}
+
+/// init 유스케이스 파라미터
+class InitAttendanceParams extends Equatable {
+  final AttendanceType type;
+
+  const InitAttendanceParams({required this.type});
+
+  @override
+  List<Object?> get props => [type];
+}
+
+/// 출퇴근 submit 유스케이스 (2차)
+///
+/// 수집한 verification_data를 서버에 일괄 전송하여 AND 검증 후 기록을 생성한다.
+@lazySingleton
+class SubmitAttendanceUseCase
+    implements UseCase<AttendanceEntity, SubmitAttendanceParams> {
+  final AttendanceRepository _repository;
+
+  const SubmitAttendanceUseCase(this._repository);
+
   @override
   Future<Either<Failure, AttendanceEntity>> call(
-      RegisterAttendanceParams params) {
-    return _repository.register(
+      SubmitAttendanceParams params) {
+    return _repository.submit(
       type: params.type,
-      verificationMethod: params.verificationMethod,
       verificationData: params.verificationData,
     );
   }
 }
 
-/// 출퇴근 등록 파라미터
-class RegisterAttendanceParams extends Equatable {
-  /// 출근 또는 퇴근 유형
+/// submit 유스케이스 파라미터
+class SubmitAttendanceParams extends Equatable {
   final AttendanceType type;
 
-  /// 사용할 인증 방식
-  final VerificationMethod verificationMethod;
-
-  /// 인증 상세 데이터 (방식별 값)
+  /// method 키(소문자) → 방식별 값 맵
   final Map<String, dynamic> verificationData;
 
-  const RegisterAttendanceParams({
+  const SubmitAttendanceParams({
     required this.type,
-    required this.verificationMethod,
     required this.verificationData,
   });
 
   @override
-  List<Object?> get props => [type, verificationMethod, verificationData];
+  List<Object?> get props => [type, verificationData];
 }

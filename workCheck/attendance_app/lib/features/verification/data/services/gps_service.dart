@@ -74,12 +74,13 @@ class GpsVerificationService implements VerificationStrategy {
         );
       }
 
+      // v2 contract: 서버는 verification_data.gps 안에 lat/lng 키를 기대한다.
       return VerificationResult(
         method: method,
         isVerified: true,
         data: {
-          'latitude': position.latitude,
-          'longitude': position.longitude,
+          'lat': position.latitude,
+          'lng': position.longitude,
           'accuracy': position.accuracy,  // 정확도 (미터 단위)
           'timestamp': position.timestamp.toIso8601String(),
         },

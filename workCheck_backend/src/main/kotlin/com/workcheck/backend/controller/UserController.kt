@@ -1,23 +1,22 @@
 package com.workcheck.backend.controller
 
 import com.workcheck.backend.dto.request.CreateUserRequest
-import com.workcheck.backend.dto.request.UpdateUserVerificationRequest
+import com.workcheck.backend.dto.request.UpdateUserMethodRequest
 import com.workcheck.backend.dto.response.UserListResponse
+import com.workcheck.backend.dto.response.UserMethodResponse
+import com.workcheck.backend.dto.response.UserMethodsResponse
 import com.workcheck.backend.dto.response.UserResponse
-import com.workcheck.backend.dto.response.UserVerificationListResponse
 import com.workcheck.backend.service.UserService
-import com.workcheck.backend.service.VerificationService
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
-// 직원 관리 API 컨트롤러
+// 직원 관리 API (v2: 근무지 엔드포인트 폐기, user-direct 인증 방법 CRUD)
 @RestController
 @RequestMapping("/api/v1/users")
 class UserController(
-    private val userService: UserService,
-    private val verificationService: VerificationService
+    private val userService: UserService
 ) {
     // 직원 목록
     @GetMapping
@@ -26,48 +25,26 @@ class UserController(
         return ResponseEntity.ok(userService.getUsers(1L))
     }
 
-    // 직원 등록
+    // 직원 등록 (등록 시 5개 method row 자동 생성, 모두 disabled)
     @PostMapping
     fun createUser(@Valid @RequestBody request: CreateUserRequest): ResponseEntity<UserResponse> {
         return ResponseEntity.status(HttpStatus.CREATED).body(userService.createUser(request))
     }
 
-    // 유저 근무지 배정
-    @PutMapping("/{userId}/workplace")
-    fun assignWorkplace(
-        @PathVariable userId: Long,
-        @RequestBody body: Map<String, Long>
-    ): ResponseEntity<UserResponse> {
-        val workplaceId = body["workplace_id"]
-            ?: throw IllegalArgumentException("workplace_id가 필요합니다")
-        return ResponseEntity.ok(userService.assignWorkplace(userId, workplaceId))
+    // 유저의 5개 method 전체 조회 (Admin Web 인증 페이지 진입 시)
+    @GetMapping("/{userId}/methods")
+    fun getUserMethods(@PathVariable userId: Long): ResponseEntity<UserMethodsResponse> {
+        return ResponseEntity.ok(userService.getUserMethods(userId))
     }
 
-    // 유저의 실제 인증 방법 조회 (근무지 기본 + 오버라이드 머지)
-    @GetMapping("/{userId}/verification-methods")
-    fun getUserVerificationMethods(
-        @PathVariable userId: Long
-    ): ResponseEntity<UserVerificationListResponse> {
-        return ResponseEntity.ok(verificationService.getUserVerificationMethods(userId))
-    }
-
-    // 유저 인증 오버라이드 설정
-    @PutMapping("/{userId}/verification-overrides")
-    fun setUserVerificationOverride(
+    // 유저 단일 method upsert (토글 + 설정 저장)
+    // methodType: GPS/WIFI/NFC/BEACON/QR (대소문자 무관)
+    @PutMapping("/{userId}/methods/{methodType}")
+    fun updateUserMethod(
         @PathVariable userId: Long,
-        @RequestBody request: UpdateUserVerificationRequest
-    ): ResponseEntity<Void> {
-        userService.setUserVerificationOverride(userId, request)
-        return ResponseEntity.ok().build()
-    }
-
-    // 유저 인증 오버라이드 삭제 (근무지 기본으로 복귀)
-    @DeleteMapping("/{userId}/verification-overrides/{methodType}")
-    fun deleteUserVerificationOverride(
-        @PathVariable userId: Long,
-        @PathVariable methodType: String
-    ): ResponseEntity<Void> {
-        userService.deleteUserVerificationOverride(userId, methodType)
-        return ResponseEntity.noContent().build()
+        @PathVariable methodType: String,
+        @Valid @RequestBody request: UpdateUserMethodRequest
+    ): ResponseEntity<UserMethodResponse> {
+        return ResponseEntity.ok(userService.updateUserMethod(userId, methodType, request))
     }
 }

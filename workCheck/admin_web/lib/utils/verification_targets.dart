@@ -1,10 +1,16 @@
-/// 멀티 타겟(복수 인증 대상) 신/구 schema 호환 유틸
+/// 멀티 타겟 신 schema 호환 유틸 (api_contract v2 — 5-enum, AND 결합)
 ///
-/// - 인증 메서드별 부품(부분 인증 수단) 그룹 정의
+/// - 메서드별 부품(부분 인증 수단) 그룹 정의 (5-enum 만)
 /// - row 단위 입력 필드 정의
-/// - JSONB config에서 신 schema(`*_targets`/`qr_codes`)/구 schema(단일 dict) 호환 추출
+/// - JSONB config에서 `targets[]` / QR `codes[]` 추출
+/// - WiFi identifier_type 라디오 헬퍼 (BSSID/IP)
 ///
-/// verification_page.dart / verification_presets_page.dart 양쪽에서 공유.
+/// 필드 키는 백엔드 v2 명세를 그대로 사용:
+///   GPS    : lat / lng / radius_m
+///   WIFI   : ssid + identifier_type(bssid|ip) + identifier_value
+///   NFC    : tag_id
+///   BEACON : uuid / major / minor / distance_m / tx_power   (서버가 rssi_threshold 자동 계산)
+///   QR     : codes[]  (root 'codes' 배열)
 library;
 
 /// 한 row의 입력 필드 타입
@@ -19,10 +25,7 @@ class ConfigField {
   const ConfigField(this.key, this.label, this.hint, this.type);
 }
 
-/// 인증 메서드의 부품(부분 인증 수단) 그룹 정의
-/// - configKey: 신 schema에서 해당 부품 타겟 배열을 담는 JSONB 키
-/// - partType: 'GPS'/'WIFI'/'NFC'/'BEACON' 같은 원자 단위 타입
-/// - label: UI에 표시할 한글 라벨
+/// 인증 메서드의 부품 그룹 정의 (5-enum 시대에는 항상 1개)
 class PartGroup {
   final String partType;
   final String configKey;
@@ -30,52 +33,35 @@ class PartGroup {
   const PartGroup(this.partType, this.configKey, this.label);
 }
 
-/// 메서드 → 부품 그룹 리스트 (신 schema 키 매핑)
-/// 단독 메서드는 `targets` 배열 1개 그룹.
-/// 복합 메서드(NFC_GPS/BEACON_GPS)는 부품별 분리 키.
-/// GPS_QR/WIFI_QR은 메인 부품의 `targets` + 별도 `qr_codes`.
-/// QR 단독 메서드는 부품 row 없이 `qr_codes`만 사용 → 빈 리스트 반환.
+/// 5-Primitive 토글 식별자 (UI 순서)
+const List<String> kPrimitives = ['GPS', 'WIFI', 'NFC', 'BEACON', 'QR'];
+
+/// 메서드 → 부품 그룹 (v2: 5-enum 만 지원, 항상 1 그룹 또는 빈 리스트)
+/// - QR은 부품 row 없음 (codes 섹션 단독 사용)
 List<PartGroup> partGroupsFor(String methodType) {
-  switch (methodType) {
+  switch (methodType.toUpperCase()) {
     case 'GPS':
-    case 'GPS_QR':
       return const [PartGroup('GPS', 'targets', 'GPS 좌표 대상')];
     case 'WIFI':
-    case 'WIFI_QR':
       return const [PartGroup('WIFI', 'targets', 'WiFi 대상')];
     case 'NFC':
       return const [PartGroup('NFC', 'targets', 'NFC 태그 대상')];
-    case 'NFC_GPS':
-      return const [
-        PartGroup('NFC', 'nfc_targets', 'NFC 태그 대상'),
-        PartGroup('GPS', 'gps_targets', 'GPS 좌표 대상'),
-      ];
     case 'BEACON':
       return const [PartGroup('BEACON', 'targets', 'Beacon 대상')];
-    case 'BEACON_GPS':
-      return const [
-        PartGroup('BEACON', 'beacon_targets', 'Beacon 대상'),
-        PartGroup('GPS', 'gps_targets', 'GPS 좌표 대상'),
-      ];
     case 'QR':
-      // QR 단독: 부품 row 없음 (qr_codes 섹션만 사용)
       return const [];
     default:
       return const [];
   }
 }
 
-/// QR 코드 섹션이 있는 메서드인지
-/// - GPS_QR / WIFI_QR : 메인 부품 + QR 코드
-/// - QR : QR 코드 섹션만 단독 사용
+/// QR 코드 섹션이 있는 메서드인지 (v2: QR 만)
 bool hasQrCodesSection(String methodType) =>
-    methodType == 'GPS_QR' ||
-    methodType == 'WIFI_QR' ||
-    methodType == 'QR';
+    methodType.toUpperCase() == 'QR';
 
-/// 부품 타입(원자) 한글 표시명
+/// 부품 타입 한글 표시명
 String partDisplayNameOf(String partType) {
-  switch (partType) {
+  switch (partType.toUpperCase()) {
     case 'GPS':
       return 'GPS';
     case 'WIFI':
@@ -84,27 +70,31 @@ String partDisplayNameOf(String partType) {
       return 'NFC';
     case 'BEACON':
       return 'Beacon';
+    case 'QR':
+      return 'QR';
     default:
       return partType;
   }
 }
 
-/// 한 row(=하나의 타겟)의 입력 필드 정의 — 부품 타입 단위
-/// 'NFC_GPS' 같은 복합 메서드는 호출하지 말 것 (대신 partGroupsFor 사용)
+/// 한 row(=하나의 타겟)의 입력 필드 정의 (v2 명세)
+/// - WIFI는 평면 필드(ssid + identifier_value)만 노출. identifier_type 라디오는 UI 측에서 별도 처리.
+/// - BEACON은 distance_m + tx_power. rssi_threshold는 서버 자동 계산이라 입력 X.
 List<ConfigField> rowFieldsForPart(String partType) {
-  switch (partType) {
+  switch (partType.toUpperCase()) {
     case 'GPS':
-    case 'GPS_QR':
       return const [
-        ConfigField('latitude', '위도', '예: 37.5665', ConfigFieldType.double_),
-        ConfigField('longitude', '경도', '예: 126.9780', ConfigFieldType.double_),
-        ConfigField('radius_meters', '반경 (m)', '미터 단위', ConfigFieldType.int_),
+        ConfigField('lat', '위도', '예: 37.5665', ConfigFieldType.double_),
+        ConfigField('lng', '경도', '예: 126.9780', ConfigFieldType.double_),
+        ConfigField('radius_m', '반경 (m)', '미터 단위', ConfigFieldType.int_),
       ];
     case 'WIFI':
-    case 'WIFI_QR':
+      // identifier_type(bssid|ip) + identifier_value 는 라디오 UI(verification_page) 또는
+      // 평면(prests)에서 별도 표시. 여기서는 SSID + identifier_value 만 generic 필드로.
       return const [
         ConfigField('ssid', 'WiFi SSID', '네트워크 이름', ConfigFieldType.string),
-        ConfigField('bssid', 'WiFi BSSID', 'MAC 주소', ConfigFieldType.string),
+        ConfigField('identifier_value', '식별자 값', 'BSSID(MAC) 또는 IP',
+            ConfigFieldType.string),
       ];
     case 'NFC':
       return const [
@@ -115,17 +105,16 @@ List<ConfigField> rowFieldsForPart(String partType) {
         ConfigField('uuid', 'Beacon UUID', 'UUID', ConfigFieldType.string),
         ConfigField('major', 'Major', '정수값', ConfigFieldType.int_),
         ConfigField('minor', 'Minor', '정수값', ConfigFieldType.int_),
-        ConfigField('rssi_threshold', 'RSSI 임계값', '음수 (예: -70)',
-            ConfigFieldType.double_),
+        ConfigField('distance_m', '거리 (m)', '예: 2.0', ConfigFieldType.double_),
+        ConfigField(
+            'tx_power', 'TxPower (dBm)', '예: -59', ConfigFieldType.double_),
       ];
     default:
       return const [];
   }
 }
 
-/// 신/구 schema 호환: configKey의 배열이 있으면 그대로, 없으면 단일 dict 폴백.
-/// - configKey == 'targets'인 단독 메서드의 단일 dict 폴백은 메서드 config 전체를 1개 target으로 간주.
-/// - 복합 메서드 부품 키(`nfc_targets` 등)가 비어있으면 단일 dict에서 해당 부품 필드만 추출.
+/// configKey의 배열에서 타겟 row들을 추출 (단일 dict 폴백 포함)
 List<Map<String, dynamic>> extractTargets(
   Map<String, dynamic> config,
   String configKey,
@@ -138,7 +127,7 @@ List<Map<String, dynamic>> extractTargets(
         .map((m) => Map<String, dynamic>.from(m))
         .toList();
   }
-  // 단일 dict 폴백: 해당 부품 필드만 모음
+  // 단일 dict 폴백 (구버전 호환): 해당 부품 필드만 모음
   final flat = <String, dynamic>{};
   for (final f in fields) {
     if (config.containsKey(f.key)) flat[f.key] = config[f.key];
@@ -146,13 +135,36 @@ List<Map<String, dynamic>> extractTargets(
   return flat.isEmpty ? <Map<String, dynamic>>[] : [flat];
 }
 
-/// QR 코드 배열 추출 (신 `qr_codes` 우선, 구 `qr_code` 단일값 호환)
+/// QR 코드 배열 추출 (v2: `codes` 우선, 구 `qr_codes`/`qr_code` 호환)
 List<String> extractQrCodes(Map<String, dynamic> config) {
-  final raw = config['qr_codes'];
+  final raw = config['codes'];
   if (raw is List) {
     return raw.map((e) => e?.toString() ?? '').toList();
+  }
+  // 구버전 호환
+  final legacyArr = config['qr_codes'];
+  if (legacyArr is List) {
+    return legacyArr.map((e) => e?.toString() ?? '').toList();
   }
   final single = config['qr_code'];
   if (single is String && single.isNotEmpty) return [single];
   return const [];
+}
+
+// =====================================================================
+// WiFi identifier (bssid/ip 라디오) 헬퍼
+// =====================================================================
+
+/// WiFi row 한 개의 identifier_type 추출 ('bssid' 기본).
+/// - v2 명세: identifier_type ∈ {'bssid', 'ip'} (소문자)
+/// - 구버전 호환: 명시되지 않았으면 'bssid' 기본
+String wifiIdentifierTypeOf(Map<String, dynamic> row) {
+  final t = (row['identifier_type'] ?? '').toString().toLowerCase();
+  if (t == 'ip') return 'ip';
+  if (t == 'bssid') return 'bssid';
+  // 구버전 호환: bssid 필드만 있으면 'bssid', ip 필드만 있으면 'ip'
+  final hasIp = (row['ip'] ?? '').toString().trim().isNotEmpty;
+  final hasBssid = (row['bssid'] ?? '').toString().trim().isNotEmpty;
+  if (hasIp && !hasBssid) return 'ip';
+  return 'bssid';
 }

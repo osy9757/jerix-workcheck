@@ -1,7 +1,7 @@
 package com.workcheck.backend.entity
 
-// 인증 방법 유형 (GPS, QR, WiFi, NFC, Beacon 및 복합 방식)
-// QR 은 verification_presets 카탈로그 전용 (verification_methods / user_verification_overrides 에서는 사용 금지)
+// 인증 방법 유형 (v2: 5개 단위 프리셋. 조합은 user_verification_methods 의 여러 row 가 동시에 enabled 상태로 표현)
+// AND 결합: enabled=TRUE 인 모든 row 의 검증이 통과해야 인증 성공
 enum class MethodType {
-    GPS, GPS_QR, WIFI, WIFI_QR, NFC, NFC_GPS, BEACON, BEACON_GPS, QR
+    GPS, WIFI, NFC, BEACON, QR
 }

@@ -13,9 +13,8 @@ import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
-// 출퇴근 기록 등록 및 조회 서비스
+// 출퇴근 기록 등록 및 조회 서비스 (v2: AND 결합 검증, init 응답 별도 분리)
 @Service
 class AttendanceService(
     private val attendanceRecordRepository: AttendanceRecordRepository,
@@ -26,41 +25,30 @@ class AttendanceService(
         private val logger = LoggerFactory.getLogger(AttendanceService::class.java)
     }
 
-    // 한국 표준시(KST) 기준으로 날짜 계산
     private val koreaZone = ZoneId.of("Asia/Seoul")
 
-    // 출근 등록
-    @Transactional
-    fun clockIn(userId: Long, request: ClockInRequest): AttendanceResponse {
-        return registerAttendance(
-            userId = userId,
-            type = AttendanceType.CLOCK_IN,
-            verificationMethod = request.verificationMethod,
-            verificationData = request.verificationData
-        )
-    }
+    // init: 어떤 method 데이터가 필요한지 + 각 method config 반환
+    fun clockInInit(userId: Long): AttendanceInitResponse = verificationService.getInitData(userId)
+    fun clockOutInit(userId: Long): AttendanceInitResponse = verificationService.getInitData(userId)
 
-    // 퇴근 등록
+    // 출근 submit
     @Transactional
-    fun clockOut(userId: Long, request: ClockOutRequest): AttendanceResponse {
-        return registerAttendance(
-            userId = userId,
-            type = AttendanceType.CLOCK_OUT,
-            verificationMethod = request.verificationMethod,
-            verificationData = request.verificationData
-        )
-    }
+    fun clockIn(userId: Long, request: ClockInRequest): AttendanceResponse =
+        registerAttendance(userId, AttendanceType.CLOCK_IN, request.verificationData)
 
-    // 출퇴근 공통 등록 로직
+    // 퇴근 submit
+    @Transactional
+    fun clockOut(userId: Long, request: ClockOutRequest): AttendanceResponse =
+        registerAttendance(userId, AttendanceType.CLOCK_OUT, request.verificationData)
+
+    // 출퇴근 공통 등록 로직 (AND 결합 검증)
     private fun registerAttendance(
         userId: Long,
         type: AttendanceType,
-        verificationMethod: String,
-        verificationData: Map<String, Any>
+        verificationData: Map<String, Map<String, Any>>
     ): AttendanceResponse {
         val typeLabel = if (type == AttendanceType.CLOCK_IN) "출근" else "퇴근"
-
-        logger.info("[Attendance] ${type.name} userId: $userId, method: $verificationMethod, verification_data: $verificationData")
+        logger.info("[Attendance] ${type.name} userId=$userId, methods=${verificationData.keys}")
 
         val user = userRepository.findById(userId)
             .orElseThrow { IllegalArgumentException("사용자를 찾을 수 없습니다") }
@@ -74,20 +62,24 @@ class AttendanceService(
             throw IllegalArgumentException("오늘 이미 ${typeLabel} 등록되었습니다")
         }
 
-        // 인증 검증 (유저 기반: 근무지 기본 + 오버라이드 반영)
-        val verifiedMethod = verificationService.verify(
-            userId, verificationMethod, verificationData
-        )
+        // 활성 method 모두 AND 결합 검증 (실패 시 throw)
+        val primaryMethod = verificationService.verifyAll(userId, verificationData)
+
+        // 통과한 모든 method 키 (요청에 들어온 키 = 활성 method 키)
+        val verifiedKeys = verificationData.keys.toList()
+
+        // verification_data 는 method 별 데이터를 그대로 JSONB 로 저장 (감사 추적)
+        val flatData: Map<String, Any> = verificationData
 
         val record = AttendanceRecord(
             user = user,
             type = type,
-            verificationMethod = verifiedMethod,
-            verificationData = verificationData,
+            methodType = primaryMethod,
+            verificationData = flatData,
             recordedAt = OffsetDateTime.now()
         )
         val saved = attendanceRecordRepository.save(record)
-        return toResponse(saved)
+        return toResponse(saved, verifiedKeys)
     }
 
     // 오늘 출퇴근 상태
@@ -105,7 +97,7 @@ class AttendanceService(
         )
     }
 
-    // 출퇴근 기록 조회 (기간별)
+    // 본인 기간별 기록
     fun getHistory(userId: Long, from: String, to: String): HistoryResponse {
         val fromDate = LocalDate.parse(from)
         val toDate = LocalDate.parse(to)
@@ -116,7 +108,6 @@ class AttendanceService(
             userId, startDateTime, endDateTime
         )
 
-        // 날짜별 그룹핑
         val dailyMap = mutableMapOf<String, Pair<AttendanceRecord?, AttendanceRecord?>>()
         for (record in records) {
             val date = record.recordedAt.atZoneSameInstant(koreaZone).toLocalDate().toString()
@@ -136,11 +127,10 @@ class AttendanceService(
                     clockOut = pair.second?.let { toResponse(it) }
                 )
             }
-
         return HistoryResponse(records = dailyRecords, total = dailyRecords.size)
     }
 
-    // 관리자용 전체 출퇴근 기록 조회 (모든 유저, 기간별)
+    // 관리자용 전체 기록
     fun getAllHistory(from: String, to: String): AdminHistoryResponse {
         val fromDate = LocalDate.parse(from)
         val toDate = LocalDate.parse(to)
@@ -151,7 +141,6 @@ class AttendanceService(
             startDateTime, endDateTime
         )
 
-        // (날짜, userId) 기준으로 그룹핑
         data class DailyKey(val date: String, val userId: Long)
         val dailyMap = mutableMapOf<DailyKey, Triple<AttendanceRecord?, AttendanceRecord?, com.workcheck.backend.entity.User>>()
         for (record in records) {
@@ -175,11 +164,9 @@ class AttendanceService(
                     clockOut = triple.second?.let { toResponse(it) }
                 )
             }
-
         return AdminHistoryResponse(records = dailyRecords, total = dailyRecords.size)
     }
 
-    // 오늘(KST 기준) 시작~종료 OffsetDateTime 범위 반환
     private fun todayRange(): Pair<OffsetDateTime, OffsetDateTime> {
         val today = LocalDate.now(koreaZone)
         val start = today.atStartOfDay(koreaZone).toOffsetDateTime()
@@ -187,13 +174,19 @@ class AttendanceService(
         return Pair(start, end)
     }
 
-    // AttendanceRecord 엔티티를 API 응답 DTO로 변환
-    private fun toResponse(record: AttendanceRecord): AttendanceResponse {
+    // AttendanceRecord → AttendanceResponse
+    private fun toResponse(record: AttendanceRecord, verifiedKeys: List<String> = emptyList()): AttendanceResponse {
         return AttendanceResponse(
             id = record.id,
             type = record.type.name,
             timestamp = record.recordedAt,
-            verificationMethod = record.verificationMethod.methodType.name.lowercase(),
+            verificationMethod = record.methodType.name.lowercase(),
+            verifiedMethods = verifiedKeys.ifEmpty {
+                // 과거 기록 조회 시: verification_data 의 키들을 그대로 노출
+                @Suppress("UNCHECKED_CAST")
+                val asNested = record.verificationData as? Map<String, Any> ?: emptyMap()
+                asNested.keys.toList()
+            },
             verificationData = record.verificationData
         )
     }

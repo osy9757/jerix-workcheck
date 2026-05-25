@@ -1,7 +1,7 @@
 part of 'attendance_bloc.dart';
 
 @freezed
-class AttendanceState with _$AttendanceState {
+abstract class AttendanceState with _$AttendanceState {
   const factory AttendanceState({
     /// 오늘 출퇴근 상태
     @Default(null) TodayStatusEntity? todayStatus,

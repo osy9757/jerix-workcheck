@@ -4,11 +4,16 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../services/api_service.dart';
 import '../models/models.dart';
 import '../utils/verification_targets.dart';
+import '../widgets/gps_picker_dialog.dart';
 
-/// MVP 시연용 인증 설정 페이지
-/// - 대상 선택: 근무지 기본값 OR 특정 유저 오버라이드
-/// - 방법별 ON/OFF + 설정값 인라인 편집
-/// - QR 방법은 QR 모달 버튼 제공
+/// 인증 설정 페이지 (api_contract v2)
+///
+/// - 유저 단일 선택 (workplace 개념 폐기)
+/// - 5개 primitive 토글 카드 (GPS / WiFi / NFC / Beacon / QR)
+/// - 활성 토글 ≥ 2일 때 "AND" 안내 + 카드 사이 AND 라벨
+/// - WiFi: 식별자 타입 라디오 (bssid / ip) + 단일 identifier_value
+/// - Beacon: 거리(m) + TxPower(dBm). rssi_threshold는 서버 자동 계산 (UI 표시 X)
+/// - QR: codes[] 멀티 입력 (프리셋 카탈로그 끼워넣기 지원)
 class VerificationPage extends StatefulWidget {
   final ApiService apiService;
   const VerificationPage({super.key, required this.apiService});
@@ -18,19 +23,14 @@ class VerificationPage extends StatefulWidget {
 }
 
 class _VerificationPageState extends State<VerificationPage> {
-  List<Workplace> _workplaces = [];
   List<Employee> _users = [];
-  Workplace? _selectedWorkplace;
-  Employee? _selectedUser; // null → 근무지 기본값 모드
-  List<VerificationMethod> _methods = [];
+  Employee? _selectedUser;
+  List<VerificationMethod> _methods = []; // 5개 method row
   bool _loading = true;
   String? _error;
 
-  // 펼쳐진 카드 인덱스 (인라인 편집용)
-  int? _expandedIndex;
-
-  /// 유저 모드 여부 (true: 유저 오버라이드, false: 근무지 기본값)
-  bool get _isUserMode => _selectedUser != null;
+  /// 펼쳐진 primitive 카드 (인라인 편집)
+  String? _expandedPrimitive;
 
   @override
   void initState() {
@@ -38,311 +38,274 @@ class _VerificationPageState extends State<VerificationPage> {
     _loadInitialData();
   }
 
-  /// 근무지 + 유저 목록 동시 로드
+  /// 유저 목록 로드 (첫 유저 자동 선택)
   Future<void> _loadInitialData() async {
     setState(() => _loading = true);
     try {
-      final results = await Future.wait([
-        widget.apiService.getWorkplaces(),
-        widget.apiService.getUsers(),
-      ]);
+      final users = await widget.apiService.getUsers();
+      if (!mounted) return;
+      setState(() {
+        _users = users;
+        _loading = false;
+        if (_users.isNotEmpty && _selectedUser == null) {
+          _selectedUser = _users.first;
+          _loadMethods();
+        }
+      });
+    } catch (e) {
       if (mounted) {
         setState(() {
-          _workplaces = results[0] as List<Workplace>;
-          _users = results[1] as List<Employee>;
+          _error = '직원 목록을 불러올 수 없습니다';
           _loading = false;
-          if (_workplaces.isNotEmpty && _selectedWorkplace == null) {
-            _selectedWorkplace = _workplaces.first;
-            _loadMethods();
-          }
         });
       }
-    } catch (e) {
-      if (mounted) setState(() { _error = '데이터를 불러올 수 없습니다'; _loading = false; });
     }
   }
 
-  /// 현재 대상의 인증 방법 로드
-  /// - 유저 모드: 해당 유저의 머지된 설정 (근무지 기본 + 오버라이드)
-  /// - 근무지 모드: 근무지 기본값
+  /// 선택된 유저의 5개 method 로드
   Future<void> _loadMethods() async {
+    if (_selectedUser == null) return;
     setState(() => _error = null);
     try {
-      List<VerificationMethod> methods;
-      if (_isUserMode) {
-        methods = await widget.apiService
-            .getUserVerificationMethods(_selectedUser!.id);
-      } else {
-        if (_selectedWorkplace == null) return;
-        methods = await widget.apiService
-            .getWorkplaceVerificationMethods(_selectedWorkplace!.id);
-      }
+      final methods = await widget.apiService.getUserMethods(_selectedUser!.id);
       if (mounted) setState(() => _methods = methods);
     } catch (e) {
       if (mounted) setState(() => _error = '인증 방법을 불러올 수 없습니다');
     }
   }
 
-  /// 유저 선택 변경
   void _onUserChanged(Employee? user) {
+    if (user == null || user.id == _selectedUser?.id) return;
     setState(() {
       _selectedUser = user;
-      _expandedIndex = null;
-      // 유저 선택 시 해당 유저의 근무지로 자동 이동 (UI 표시용)
-      if (user?.workplaceId != null) {
-        final wp = _workplaces.firstWhere(
-          (w) => w.id == user!.workplaceId,
-          orElse: () => _selectedWorkplace!,
-        );
-        _selectedWorkplace = wp;
-      }
+      _expandedPrimitive = null;
+      _methods = [];
     });
     _loadMethods();
   }
 
-  /// ON/OFF 토글 (모드에 따라 다른 API 호출)
-  Future<void> _toggleMethod(VerificationMethod method) async {
-    try {
-      if (_isUserMode) {
-        await widget.apiService.updateUserVerificationOverride(
-          _selectedUser!.id,
-          methodType: method.methodType,
-          isEnabled: !method.enabled,
-          config: method.config,
-        );
-      } else {
-        if (_selectedWorkplace == null) return;
-        await widget.apiService.updateWorkplaceVerificationMethod(
-          _selectedWorkplace!.id, method.id!,
-          enabled: !method.enabled, config: method.config,
-        );
-      }
-      _loadMethods();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('설정 변경 실패')),
-        );
-      }
+  // -----------------------------------------------------------------
+  // 백엔드 row 조회 헬퍼
+  // -----------------------------------------------------------------
+
+  VerificationMethod? _methodByType(String type) {
+    for (final m in _methods) {
+      if (m.methodType.toUpperCase() == type.toUpperCase()) return m;
     }
+    return null;
   }
 
-  /// 설정값 저장 (모드에 따라 다른 API 호출)
-  Future<void> _saveConfig(VerificationMethod method, Map<String, dynamic> newConfig) async {
-    try {
-      if (_isUserMode) {
-        await widget.apiService.updateUserVerificationOverride(
-          _selectedUser!.id,
-          methodType: method.methodType,
-          isEnabled: method.enabled,
-          config: newConfig,
-        );
-      } else {
-        if (_selectedWorkplace == null) return;
-        await widget.apiService.updateWorkplaceVerificationMethod(
-          _selectedWorkplace!.id, method.id!,
-          enabled: method.enabled, config: newConfig,
-        );
-      }
-      _loadMethods();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('저장 완료'), duration: Duration(seconds: 1)),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('저장 실패')),
-        );
-      }
+  /// 활성된 primitive 집합 (UI AND 시각화용)
+  Set<String> _activePrimitives() {
+    final out = <String>{};
+    for (final m in _methods) {
+      if (m.enabled) out.add(m.methodType.toUpperCase());
     }
+    return out;
   }
 
-  /// 유저 오버라이드 제거 → 근무지 기본값으로 복귀
-  Future<void> _resetUserOverride(VerificationMethod method) async {
-    if (!_isUserMode) return;
+  // -----------------------------------------------------------------
+  // 저장 (per-card)
+  // -----------------------------------------------------------------
+
+  /// primitive 토글 ON/OFF — config는 유지
+  Future<void> _togglePrimitive(String primitive, bool nextEnabled) async {
+    final m = _methodByType(primitive);
+    if (m == null) return;
     try {
-      await widget.apiService.deleteUserVerificationOverride(
-        _selectedUser!.id, method.methodType,
+      await widget.apiService.updateUserMethod(
+        _selectedUser!.id,
+        methodType: primitive,
+        isEnabled: nextEnabled,
+        configData: m.config,
       );
-      _loadMethods();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('기본값으로 복귀'), duration: Duration(seconds: 1)),
-        );
-      }
+      await _loadMethods();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('복귀 실패')),
-        );
-      }
+      _showSnack('$primitive 토글 변경 실패');
     }
   }
 
-  /// QR 타입인지 확인
-  bool _hasQr(String methodType) {
-    return const {'GPS_QR', 'WIFI_QR'}.contains(methodType);
-  }
-
-  IconData _getIcon(String methodType) {
-    switch (methodType) {
-      case 'GPS': case 'GPS_QR': return Icons.location_on;
-      case 'WIFI': case 'WIFI_QR': return Icons.wifi;
-      case 'NFC': case 'NFC_GPS': return Icons.nfc;
-      case 'BEACON': case 'BEACON_GPS': return Icons.bluetooth;
-      default: return Icons.settings;
+  /// primitive config + enabled 저장
+  Future<void> _savePrimitive({
+    required String primitive,
+    required bool enabled,
+    required Map<String, dynamic> config,
+  }) async {
+    try {
+      await widget.apiService.updateUserMethod(
+        _selectedUser!.id,
+        methodType: primitive,
+        isEnabled: enabled,
+        configData: config,
+      );
+      await _loadMethods();
+      _showSnack('$primitive 저장 완료');
+    } catch (e) {
+      _showSnack('$primitive 저장 실패');
     }
   }
 
-  Color _getColor(String methodType) {
-    switch (methodType) {
-      case 'GPS': case 'GPS_QR': return Colors.green;
-      case 'WIFI': case 'WIFI_QR': return Colors.blue;
-      case 'NFC': case 'NFC_GPS': return Colors.orange;
-      case 'BEACON': case 'BEACON_GPS': return Colors.purple;
-      default: return Colors.grey;
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+    );
+  }
+
+  // -----------------------------------------------------------------
+  // primitive 메타
+  // -----------------------------------------------------------------
+  static IconData _primitiveIcon(String p) {
+    switch (p) {
+      case 'GPS':
+        return Icons.location_on;
+      case 'WIFI':
+        return Icons.wifi;
+      case 'NFC':
+        return Icons.nfc;
+      case 'BEACON':
+        return Icons.bluetooth;
+      case 'QR':
+        return Icons.qr_code;
+      default:
+        return Icons.settings;
     }
   }
 
-  /// QR 코드 모달 - 인증 설정의 qr_codes 기반
-  /// - method 지정: 해당 method.config의 qr_codes만 렌더링
-  /// - method 미지정: 활성화된 GPS_QR/WIFI_QR 메서드 전체의 qr_codes를 그룹별 렌더링
-  /// - 비교용 랜덤 QR(=인증 실패)도 함께 보여줌
-  void _showQrModal(Workplace workplace, {VerificationMethod? method}) {
-    // 표시 대상 메서드 결정
-    final List<VerificationMethod> targets = method != null
-        ? [method]
-        : _methods.where((m) => _hasQr(m.methodType) && m.enabled).toList();
-
-    // (메서드, qr_codes) 그룹 — 빈 코드 제거
-    final groups = <MapEntry<VerificationMethod, List<String>>>[];
-    for (final m in targets) {
-      final codes = extractQrCodes(m.config)
-          .where((c) => c.trim().isNotEmpty)
-          .toList();
-      if (codes.isNotEmpty) groups.add(MapEntry(m, codes));
+  static Color _primitiveColor(String p) {
+    switch (p) {
+      case 'GPS':
+        return Colors.green;
+      case 'WIFI':
+        return Colors.blue;
+      case 'NFC':
+        return Colors.orange;
+      case 'BEACON':
+        return Colors.purple;
+      case 'QR':
+        return Colors.teal;
+      default:
+        return Colors.grey;
     }
+  }
 
+  // -----------------------------------------------------------------
+  // QR 모달 (선택된 유저의 QR codes 시각화)
+  // -----------------------------------------------------------------
+  void _showQrModal() {
+    final qrMethod = _methodByType('QR');
+    final codes = qrMethod == null
+        ? <String>[]
+        : extractQrCodes(qrMethod.config)
+            .where((c) => c.trim().isNotEmpty)
+            .toList();
     String randomQr = _generateRandomQr();
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          return AlertDialog(
-            title: Row(
-              children: [
-                const Icon(Icons.qr_code, color: Color(0xFF2DDAA9)),
-                const SizedBox(width: 8),
-                Text('${workplace.name} - QR 코드'),
-              ],
-            ),
-            content: SizedBox(
-              width: 720,
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // 등록된 QR이 없을 때 안내
-                    if (groups.isEmpty)
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                        ),
-                        child: const Text(
-                          '등록된 QR 코드가 없습니다.\n'
-                          '인증 설정에서 GPS+QR / WiFi+QR 메서드를 활성화하고 qr_codes를 추가하세요.',
-                          style: TextStyle(color: Colors.orange),
-                        ),
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Row(
+            children: [
+              const Icon(Icons.qr_code, color: Color(0xFF2DDAA9)),
+              const SizedBox(width: 8),
+              Text('${_selectedUser?.name ?? "유저"} - QR 코드'),
+            ],
+          ),
+          content: SizedBox(
+            width: 720,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (codes.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(8),
+                        border:
+                            Border.all(color: Colors.orange.withOpacity(0.3)),
                       ),
-
-                    // 메서드별 QR 그룹
-                    for (final g in groups) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8, bottom: 8),
-                        child: Row(
-                          children: [
-                            Icon(_getIcon(g.key.methodType),
-                                size: 18, color: _getColor(g.key.methodType)),
-                            const SizedBox(width: 6),
-                            Text(
-                              '${g.key.displayName} · 인증용 QR ${g.value.length}개',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: _getColor(g.key.methodType),
-                              ),
-                            ),
-                          ],
-                        ),
+                      child: const Text(
+                        '등록된 QR 코드가 없습니다.\n'
+                        'QR 카드를 열어 codes 를 추가하세요.',
+                        style: TextStyle(color: Colors.orange),
                       ),
-                      Wrap(
-                        spacing: 16,
-                        runSpacing: 16,
-                        children: [
-                          for (int i = 0; i < g.value.length; i++)
-                            _buildQrCard(
-                              label: '${g.key.displayName} #${i + 1}',
-                              subtitle: '스캔 → 인증 성공',
-                              data: g.value[i],
-                              color: _getColor(g.key.methodType),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      const Divider(height: 24),
-                    ],
-
-                    // 비교용 랜덤 QR (실패 케이스 데모)
+                    )
+                  else ...[
                     const Padding(
                       padding: EdgeInsets.only(top: 4, bottom: 8),
                       child: Text(
-                        '비교용 (랜덤)',
+                        '인증용 QR',
                         style: TextStyle(
-                            fontWeight: FontWeight.w600, color: Colors.grey),
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF2DDAA9),
+                        ),
                       ),
                     ),
-                    _buildQrCard(
-                      label: '테스트 (랜덤)',
-                      subtitle: '스캔 → 인증 실패',
-                      data: randomQr,
-                      color: Colors.grey,
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 16,
+                      children: [
+                        for (int i = 0; i < codes.length; i++)
+                          _buildQrCard(
+                            label: 'QR #${i + 1}',
+                            subtitle: '스캔 → 인증 성공',
+                            data: codes[i],
+                            color: const Color(0xFF2DDAA9),
+                          ),
+                      ],
                     ),
+                    const SizedBox(height: 8),
+                    const Divider(height: 24),
                   ],
-                ),
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4, bottom: 8),
+                    child: Text(
+                      '비교용 (랜덤)',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w600, color: Colors.grey),
+                    ),
+                  ),
+                  _buildQrCard(
+                    label: '테스트 (랜덤)',
+                    subtitle: '스캔 → 인증 실패',
+                    data: randomQr,
+                    color: Colors.grey,
+                  ),
+                ],
               ),
             ),
-            actions: [
-              TextButton.icon(
-                icon: const Icon(Icons.shuffle, size: 18),
-                label: const Text('랜덤 QR 변경'),
-                onPressed: () =>
-                    setDialogState(() => randomQr = _generateRandomQr()),
+          ),
+          actions: [
+            TextButton.icon(
+              icon: const Icon(Icons.shuffle, size: 18),
+              label: const Text('랜덤 QR 변경'),
+              onPressed: () =>
+                  setDialogState(() => randomQr = _generateRandomQr()),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2DDAA9),
+                foregroundColor: Colors.white,
               ),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(ctx),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2DDAA9),
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('닫기'),
-              ),
-            ],
-          );
-        },
+              child: const Text('닫기'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildQrCard({
-    required String label, required String subtitle,
-    required String data, required Color color,
+    required String label,
+    required String subtitle,
+    required String data,
+    required Color color,
   }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -353,7 +316,9 @@ class _VerificationPageState extends State<VerificationPage> {
             color: color.withOpacity(0.1),
             borderRadius: BorderRadius.circular(16),
           ),
-          child: Text(label, style: TextStyle(fontWeight: FontWeight.w600, color: color, fontSize: 14)),
+          child: Text(label,
+              style: TextStyle(
+                  fontWeight: FontWeight.w600, color: color, fontSize: 14)),
         ),
         const SizedBox(height: 4),
         Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
@@ -365,10 +330,13 @@ class _VerificationPageState extends State<VerificationPage> {
             borderRadius: BorderRadius.circular(12),
           ),
           child: QrImageView(
-            data: data, version: QrVersions.auto, size: 180,
+            data: data,
+            version: QrVersions.auto,
+            size: 180,
             eyeStyle: QrEyeStyle(eyeShape: QrEyeShape.square, color: color),
             dataModuleStyle: const QrDataModuleStyle(
-              dataModuleShape: QrDataModuleShape.square, color: Colors.black87,
+              dataModuleShape: QrDataModuleShape.square,
+              color: Colors.black87,
             ),
           ),
         ),
@@ -384,10 +352,14 @@ class _VerificationPageState extends State<VerificationPage> {
   String _generateRandomQr() {
     final r = Random();
     const c = 'abcdef0123456789';
-    String s(int len) => List.generate(len, (_) => c[r.nextInt(c.length)]).join();
+    String s(int len) =>
+        List.generate(len, (_) => c[r.nextInt(c.length)]).join();
     return '${s(8)}-${s(4)}-${s(4)}-${s(4)}-${s(12)}';
   }
 
+  // =================================================================
+  // 빌드
+  // =================================================================
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -403,15 +375,16 @@ class _VerificationPageState extends State<VerificationPage> {
           Row(
             children: [
               Text('인증 설정',
-                style: Theme.of(context).textTheme.headlineMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
+                  style: Theme.of(context)
+                      .textTheme
+                      .headlineMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
               const Spacer(),
-              if (_selectedWorkplace != null)
+              if (_selectedUser != null)
                 ElevatedButton.icon(
                   icon: const Icon(Icons.qr_code, size: 20),
                   label: const Text('QR 보기'),
-                  onPressed: () => _showQrModal(_selectedWorkplace!),
+                  onPressed: _showQrModal,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2DDAA9),
                     foregroundColor: Colors.white,
@@ -421,40 +394,43 @@ class _VerificationPageState extends State<VerificationPage> {
               IconButton(
                 icon: const Icon(Icons.refresh),
                 tooltip: '새로고침',
-                onPressed: () { _loadInitialData(); _loadMethods(); },
+                onPressed: () {
+                  _loadInitialData();
+                  _loadMethods();
+                },
               ),
             ],
           ),
           const SizedBox(height: 4),
           Text(
-            _isUserMode
-                ? '유저 "${_selectedUser!.name}"의 인증 방법을 수정합니다 (오버라이드)'
-                : '근무지 기본 인증 설정을 수정합니다 (모든 유저에 적용)',
+            _selectedUser == null
+                ? '직원을 선택해 인증 방법을 설정하세요'
+                : '"${_selectedUser!.name}"의 5개 인증 방법을 직접 ON/OFF 및 편집합니다',
             style: TextStyle(color: Colors.grey[600]),
           ),
           const SizedBox(height: 16),
 
-          // 대상 선택 영역
-          _buildTargetSelector(),
-          const SizedBox(height: 20),
+          _buildUserSelector(),
+          const SizedBox(height: 16),
 
-          // 에러 표시
           if (_error != null)
             Padding(
-              padding: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.only(bottom: 12),
               child: Text(_error!, style: const TextStyle(color: Colors.red)),
             ),
 
-          // 인증 방법 리스트
-          if (_selectedWorkplace != null)
+          // AND 결합 안내 카드 + 5개 primitive 토글
+          if (_selectedUser != null)
             Expanded(
-              child: ListView.builder(
-                itemCount: _methods.length,
-                itemBuilder: (context, index) {
-                  final method = _methods[index];
-                  final isExpanded = _expandedIndex == index;
-                  return _buildMethodCard(method, index, isExpanded);
-                },
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildAndCombinationCard(),
+                    const SizedBox(height: 16),
+                    _buildPrimitiveListWithAndDividers(),
+                  ],
+                ),
               ),
             ),
         ],
@@ -462,92 +438,67 @@ class _VerificationPageState extends State<VerificationPage> {
     );
   }
 
-  /// 대상(근무지/유저) 선택 UI
-  Widget _buildTargetSelector() {
+  /// 유저 단일 선택 드롭다운
+  Widget _buildUserSelector() {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _isUserMode
-            ? Colors.orange.withOpacity(0.05)
-            : const Color(0xFF2DDAA9).withOpacity(0.05),
+        color: const Color(0xFF2DDAA9).withOpacity(0.05),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: _isUserMode
-              ? Colors.orange.withOpacity(0.3)
-              : const Color(0xFF2DDAA9).withOpacity(0.3),
-        ),
+        border: Border.all(color: const Color(0xFF2DDAA9).withOpacity(0.3)),
       ),
       child: Row(
         children: [
-          // 근무지 드롭다운
-          _buildDropdown(
-            icon: Icons.business,
-            label: '근무지',
-            child: DropdownButton<int>(
-              value: _selectedWorkplace?.id,
-              hint: const Text('근무지'),
-              isDense: true,
-              underline: const SizedBox(),
-              items: _workplaces.map((wp) {
-                return DropdownMenuItem(
-                  value: wp.id,
-                  child: Text(wp.name),
-                );
-              }).toList(),
-              onChanged: _isUserMode ? null : (id) {
-                if (id == null) return;
-                setState(() {
-                  _selectedWorkplace = _workplaces.firstWhere((w) => w.id == id);
-                  _expandedIndex = null;
-                });
-                _loadMethods();
-              },
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: Colors.grey.withOpacity(0.3)),
             ),
-          ),
-          const SizedBox(width: 12),
-          const Text('→', style: TextStyle(fontSize: 18, color: Colors.grey)),
-          const SizedBox(width: 12),
-
-          // 유저 드롭다운
-          _buildDropdown(
-            icon: Icons.person,
-            label: '대상 유저',
-            child: DropdownButton<Employee?>(
-              value: _selectedUser,
-              hint: const Text('근무지 기본값'),
-              isDense: true,
-              underline: const SizedBox(),
-              items: [
-                const DropdownMenuItem<Employee?>(
-                  value: null,
-                  child: Text('🏢 근무지 기본값',
-                    style: TextStyle(fontWeight: FontWeight.w600),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.person, size: 18, color: Colors.grey[600]),
+                const SizedBox(width: 6),
+                Text('대상 유저: ',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _selectedUser?.id,
+                    hint: const Text('유저 선택'),
+                    isDense: true,
+                    items: _users
+                        .map((u) => DropdownMenuItem<int>(
+                              value: u.id,
+                              child: Text(
+                                  '👤 ${u.name} (${u.employeeId})'
+                                  '${u.department != null ? " · ${u.department}" : ""}'),
+                            ))
+                        .toList(),
+                    onChanged: (id) {
+                      if (id == null) return;
+                      final u = _users.firstWhere((x) => x.id == id);
+                      _onUserChanged(u);
+                    },
                   ),
                 ),
-                ..._users.map((u) {
-                  return DropdownMenuItem<Employee?>(
-                    value: u,
-                    child: Text('👤 ${u.name} (${u.employeeId})'),
-                  );
-                }),
               ],
-              onChanged: _onUserChanged,
             ),
           ),
-
           const Spacer(),
-
-          // 모드 배지
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: _isUserMode ? Colors.orange : const Color(0xFF2DDAA9),
+              color: const Color(0xFF2DDAA9),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Text(
-              _isUserMode ? '유저 오버라이드 모드' : '근무지 기본 모드',
-              style: const TextStyle(
-                color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600,
+            child: const Text(
+              '유저 단위 5-Primitive',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -556,295 +507,443 @@ class _VerificationPageState extends State<VerificationPage> {
     );
   }
 
-  /// 드롭다운 래퍼 (아이콘 + 라벨 + 값)
-  Widget _buildDropdown({
-    required IconData icon,
-    required String label,
-    required Widget child,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.grey.withOpacity(0.3)),
+  // -----------------------------------------------------------------
+  // AND 결합 안내 카드
+  // -----------------------------------------------------------------
+  Widget _buildAndCombinationCard() {
+    final active = _activePrimitives();
+
+    Color outline;
+    Color bg;
+    String message;
+    if (active.isEmpty) {
+      outline = Colors.grey.withOpacity(0.3);
+      bg = Colors.grey.withOpacity(0.03);
+      message = '활성된 인증 방식이 없습니다. 아래에서 GPS/WiFi/NFC/Beacon/QR 토글을 켜세요.';
+    } else if (active.length == 1) {
+      outline = const Color(0xFF2DDAA9).withOpacity(0.5);
+      bg = const Color(0xFF2DDAA9).withOpacity(0.05);
+      message = '단일 인증입니다. 이 방식 1개만 통과하면 출퇴근이 인정됩니다.';
+    } else {
+      outline = const Color(0xFF2DDAA9).withOpacity(0.6);
+      bg = const Color(0xFF2DDAA9).withOpacity(0.08);
+      message = '선택된 방식 ${active.length}개 모두 통과해야 인증 (AND 결합)';
+    }
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: outline, width: 1.5),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: Colors.grey[600]),
-          const SizedBox(width: 6),
-          Text('$label: ',
-            style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+      color: bg,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  active.isEmpty
+                      ? Icons.info_outline
+                      : (active.length >= 2
+                          ? Icons.shield
+                          : Icons.shield_outlined),
+                  size: 20,
+                  color: active.isEmpty
+                      ? Colors.grey[600]
+                      : const Color(0xFF2DDAA9),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  '현재 활성 인증 조합',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: active.isEmpty
+                        ? Colors.grey.withOpacity(0.2)
+                        : const Color(0xFF2DDAA9).withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${active.length}개 활성',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: active.isEmpty
+                          ? Colors.grey[700]
+                          : const Color(0xFF1B7E62),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (active.isNotEmpty) _buildAndChainChips(active),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// primitive 체인 시각화 (chip ─AND─ chip ─AND─ chip ...)
+  Widget _buildAndChainChips(Set<String> active) {
+    // kPrimitives 순서를 유지하기 위해 정렬
+    final items = kPrimitives.where(active.contains).toList();
+    final widgets = <Widget>[];
+    for (int i = 0; i < items.length; i++) {
+      final p = items[i];
+      final color = _primitiveColor(p);
+      widgets.add(
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withOpacity(0.5)),
           ),
-          DropdownButtonHideUnderline(child: child),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_primitiveIcon(p), size: 16, color: color),
+              const SizedBox(width: 4),
+              Text(
+                partDisplayNameOf(p),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (i < items.length - 1) {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              'AND',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Colors.grey[600],
+                letterSpacing: 1,
+              ),
+            ),
+          ),
+        );
+      }
+    }
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 0,
+      runSpacing: 6,
+      children: widgets,
+    );
+  }
+
+  // -----------------------------------------------------------------
+  // 5개 primitive 카드 (활성 토글 ≥ 2일 때 카드 사이 AND 라벨)
+  // -----------------------------------------------------------------
+
+  /// 활성 토글이 2개 이상인 경우, 활성 카드 사이마다 AND 라벨을 끼워 렌더
+  Widget _buildPrimitiveListWithAndDividers() {
+    final active = _activePrimitives();
+    final showDividers = active.length >= 2;
+
+    // 활성/비활성 무관, 카드는 항상 kPrimitives 순서로 5개 노출
+    final widgets = <Widget>[];
+    bool sawActive = false; // 직전에 활성 카드를 출력했는지 (AND 라벨 끼울지 판단)
+
+    for (final p in kPrimitives) {
+      final isActive = active.contains(p);
+      if (showDividers && sawActive && isActive) {
+        widgets.add(_buildAndDivider());
+      }
+      widgets.add(_buildPrimitiveCard(p));
+      if (isActive) sawActive = true;
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: widgets,
+    );
+  }
+
+  /// 카드 사이 AND 구분선
+  Widget _buildAndDivider() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Container(
+                height: 1, color: const Color(0xFF2DDAA9).withOpacity(0.4)),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(
+                color: const Color(0xFF2DDAA9).withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+                border:
+                    Border.all(color: const Color(0xFF2DDAA9).withOpacity(0.5)),
+              ),
+              child: const Text(
+                'AND',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1B7E62),
+                  letterSpacing: 1.5,
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+                height: 1, color: const Color(0xFF2DDAA9).withOpacity(0.4)),
+          ),
         ],
       ),
     );
   }
 
-  /// 인증 방법 카드
-  Widget _buildMethodCard(VerificationMethod method, int index, bool isExpanded) {
-    final color = _getColor(method.methodType);
-    final isOverridden = method.isOverridden == true;
+  /// 5개 primitive 중 한 카드
+  Widget _buildPrimitiveCard(String primitive) {
+    final color = _primitiveColor(primitive);
+    final icon = _primitiveIcon(primitive);
+    final label = partDisplayNameOf(primitive);
+    final isExpanded = _expandedPrimitive == primitive;
+    final method = _methodByType(primitive);
+    final isActive = method?.enabled ?? false;
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 10),
       elevation: isExpanded ? 3 : 1,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: method.enabled ? color.withOpacity(0.5) : Colors.grey.withOpacity(0.2),
-          width: method.enabled ? 2 : 1,
+          color: isActive
+              ? color.withOpacity(0.5)
+              : Colors.grey.withOpacity(0.2),
+          width: isActive ? 2 : 1,
         ),
       ),
       child: Column(
         children: [
           InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: () => setState(() => _expandedIndex = isExpanded ? null : index),
+            onTap: () => setState(
+                () => _expandedPrimitive = isExpanded ? null : primitive),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: (method.enabled ? color : Colors.grey).withOpacity(0.1),
+                      color:
+                          (isActive ? color : Colors.grey).withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Icon(_getIcon(method.methodType),
-                      color: method.enabled ? color : Colors.grey, size: 24),
+                    child: Icon(icon,
+                        color: isActive ? color : Colors.grey, size: 24),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          children: [
-                            Text(method.displayName,
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-                            const SizedBox(width: 8),
-                            // 유저 모드에서 오버라이드 적용된 경우 배지
-                            if (_isUserMode && isOverridden)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.orange.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text(
-                                  '오버라이드',
-                                  style: TextStyle(
-                                    fontSize: 10, color: Colors.orange, fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
+                        Text(label,
+                            style: const TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.w600)),
                         const SizedBox(height: 2),
                         Text(
-                          method.enabled ? '활성' : '비활성',
+                          isActive ? '활성' : '비활성',
                           style: TextStyle(
                             fontSize: 12,
-                            color: method.enabled ? color : Colors.grey,
+                            color: isActive ? color : Colors.grey,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ],
                     ),
                   ),
-                  Icon(isExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.grey),
+                  Icon(
+                    isExpanded ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.grey,
+                  ),
                   const SizedBox(width: 8),
                   Switch(
-                    value: method.enabled,
-                    onChanged: (_) => _toggleMethod(method),
+                    value: isActive,
+                    onChanged: method == null
+                        ? null
+                        : (v) => _togglePrimitive(primitive, v),
                     activeColor: color,
                   ),
                 ],
               ),
             ),
           ),
-
-          // 펼침: 인라인 설정 편집 (동적 row UI)
-          if (isExpanded)
-            _MethodConfigEditor(
-              key: ValueKey('${method.methodType}-${_selectedUser?.id ?? 0}'),
-              apiService: widget.apiService,
-              method: method,
-              hasQr: _hasQr(method.methodType),
-              color: color,
-              isUserMode: _isUserMode,
-              isOverridden: isOverridden,
-              onSave: (newConfig) => _saveConfig(method, newConfig),
-              onReset: _isUserMode && isOverridden
-                  ? () => _resetUserOverride(method)
-                  : null,
-              onShowQr: _selectedWorkplace != null
-                  ? () => _showQrModal(_selectedWorkplace!, method: method)
-                  : null,
-            ),
+          if (isExpanded) _buildPrimitiveEditor(primitive, method),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPrimitiveEditor(String primitive, VerificationMethod? method) {
+    final color = _primitiveColor(primitive);
+    if (method == null) {
+      return Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          '백엔드에 $primitive method row가 없습니다.',
+          style: const TextStyle(color: Colors.red),
+        ),
+      );
+    }
+    if (primitive == 'QR') {
+      return _QrPrimitiveEditor(
+        key: ValueKey('QR-${_selectedUser?.id ?? 0}'),
+        color: color,
+        method: method,
+        onSave: (enabled, config) => _savePrimitive(
+          primitive: 'QR',
+          enabled: enabled,
+          config: config,
+        ),
+      );
+    }
+    return _PrimitiveConfigEditor(
+      key: ValueKey('$primitive-${_selectedUser?.id ?? 0}'),
+      primitive: primitive,
+      color: color,
+      method: method,
+      onSave: (enabled, config) => _savePrimitive(
+        primitive: primitive,
+        enabled: enabled,
+        config: config,
       ),
     );
   }
 }
 
-// 부품/필드/타겟 추출 헬퍼는 lib/utils/verification_targets.dart 에 공유 정의됨.
-// (PartGroup, ConfigField, partGroupsFor, hasQrCodesSection, partDisplayNameOf,
-//  rowFieldsForPart, extractTargets, extractQrCodes)
-
-/// 인라인 설정값 편집 위젯 (동적 row UI - 신 schema)
-/// - 메서드별 부품 그룹마다 row 카드 N개 + "+ 추가" 버튼
-/// - GPS_QR/WIFI_QR은 별도 QR 코드 섹션
-/// - 최소 1 row 유지 (마지막 row 삭제 시 비움)
-class _MethodConfigEditor extends StatefulWidget {
-  final ApiService apiService; // 프리셋 API 호출용
-  final VerificationMethod method;
-  final bool hasQr;
+// =====================================================================
+// primitive(GPS/WIFI/NFC/BEACON) 편집 위젯
+// - 동적 row 카드 (각 primitive의 targets 배열)
+// - WIFI는 row 한 개당 bssid/ip 라디오 + identifier_value 단일 필드
+// - GPS는 "지도에서 선택" 버튼 노출
+// =====================================================================
+class _PrimitiveConfigEditor extends StatefulWidget {
+  final String primitive; // 'GPS' | 'WIFI' | 'NFC' | 'BEACON'
   final Color color;
-  final bool isUserMode;
-  final bool isOverridden;
-  final Function(Map<String, dynamic>) onSave;
-  final VoidCallback? onReset;
-  final VoidCallback? onShowQr;
+  final VerificationMethod method;
+  final Future<void> Function(bool enabled, Map<String, dynamic> config)
+      onSave;
 
-  const _MethodConfigEditor({
+  const _PrimitiveConfigEditor({
     super.key,
-    required this.apiService,
-    required this.method,
-    required this.hasQr,
+    required this.primitive,
     required this.color,
-    required this.isUserMode,
-    required this.isOverridden,
+    required this.method,
     required this.onSave,
-    this.onReset,
-    this.onShowQr,
   });
 
   @override
-  State<_MethodConfigEditor> createState() => _MethodConfigEditorState();
+  State<_PrimitiveConfigEditor> createState() => _PrimitiveConfigEditorState();
 }
 
-class _MethodConfigEditorState extends State<_MethodConfigEditor> {
-  late final List<PartGroup> _partGroups;
-  late final bool _hasQrSection;
+class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
+  /// row 컨트롤러 리스트 (각 row는 fieldKey → controller)
+  final List<Map<String, TextEditingController>> _rows = [];
 
-  /// configKey → 부품 row 컨트롤러 리스트 (각 row는 field key → TextEditingController)
-  final Map<String, List<Map<String, TextEditingController>>> _rowsByKey = {};
+  /// WIFI 전용: row index → identifier_type ('bssid' | 'ip')
+  final List<String> _wifiIdTypes = [];
 
-  /// QR 코드 컨트롤러 리스트 (qr_codes 섹션)
-  final List<TextEditingController> _qrCodeCtrls = [];
+  late final List<ConfigField> _fields;
+
+  bool _localEnabled = false;
 
   @override
   void initState() {
     super.initState();
-    _partGroups = partGroupsFor(widget.method.methodType);
-    _hasQrSection = hasQrCodesSection(widget.method.methodType);
-    _initFromConfig();
-  }
+    _fields = rowFieldsForPart(widget.primitive);
+    _localEnabled = widget.method.enabled;
 
-  /// widget.method.config로부터 부품별 row와 QR 코드를 초기화
-  /// 신 schema(`*_targets`/`qr_codes`) 우선, 단일 dict는 1개 row로 폴백
-  void _initFromConfig() {
-    final config = widget.method.config;
-    for (final group in _partGroups) {
-      final fields = rowFieldsForPart(group.partType);
-      var targets = extractTargets(config, group.configKey, fields);
-      // 빈 상태 방지: 최소 1 row 유지
-      if (targets.isEmpty) targets = [<String, dynamic>{}];
-      _rowsByKey[group.configKey] =
-          targets.map((t) => _makeRowControllers(fields, t)).toList();
-    }
-    if (_hasQrSection) {
-      var codes = extractQrCodes(config);
-      if (codes.isEmpty) codes = [''];
-      for (final c in codes) {
-        _qrCodeCtrls.add(TextEditingController(text: c));
-      }
+    final raw =
+        extractTargets(widget.method.config, 'targets', _fields);
+    final initialRows = raw.isEmpty ? [<String, dynamic>{}] : raw;
+    for (final t in initialRows) {
+      _addInitialRow(t);
     }
   }
 
-  /// row의 컨트롤러 맵 생성
-  Map<String, TextEditingController> _makeRowControllers(
-    List<ConfigField> fields,
-    Map<String, dynamic> data,
-  ) {
+  void _addInitialRow(Map<String, dynamic> data) {
     final m = <String, TextEditingController>{};
-    for (final f in fields) {
+    for (final f in _fields) {
       final v = data[f.key];
       m[f.key] = TextEditingController(text: v?.toString() ?? '');
     }
-    return m;
+    _rows.add(m);
+    if (widget.primitive == 'WIFI') {
+      _wifiIdTypes.add(wifiIdentifierTypeOf(data));
+    }
   }
 
   @override
   void dispose() {
-    for (final list in _rowsByKey.values) {
-      for (final row in list) {
-        for (final c in row.values) {
-          c.dispose();
-        }
+    for (final row in _rows) {
+      for (final c in row.values) {
+        c.dispose();
       }
-    }
-    for (final c in _qrCodeCtrls) {
-      c.dispose();
     }
     super.dispose();
   }
 
-  /// 부품 그룹에 빈 row 추가
-  void _addRow(PartGroup group) {
-    setState(() {
-      final fields = rowFieldsForPart(group.partType);
-      _rowsByKey[group.configKey]!
-          .add(_makeRowControllers(fields, const <String, dynamic>{}));
-    });
+  void _addRow() {
+    setState(() => _addInitialRow(const <String, dynamic>{}));
   }
 
-  /// 부품 그룹의 row 삭제 (최소 1개 유지: 마지막 row면 비움 처리)
-  void _removeRow(PartGroup group, int index) {
+  /// row 제거 (최소 1개 유지: 마지막은 비우기만)
+  void _removeRow(int index) {
     setState(() {
-      final list = _rowsByKey[group.configKey]!;
-      if (list.length <= 1) {
-        for (final c in list[0].values) {
+      if (_rows.length <= 1) {
+        for (final c in _rows[0].values) {
           c.clear();
+        }
+        if (widget.primitive == 'WIFI') {
+          _wifiIdTypes[0] = 'bssid';
         }
         return;
       }
-      for (final c in list[index].values) {
+      for (final c in _rows[index].values) {
         c.dispose();
       }
-      list.removeAt(index);
-    });
-  }
-
-  /// QR 코드 추가
-  void _addQr() {
-    setState(() => _qrCodeCtrls.add(TextEditingController(text: '')));
-  }
-
-  /// QR 코드 삭제 (최소 1개 유지)
-  void _removeQr(int index) {
-    setState(() {
-      if (_qrCodeCtrls.length <= 1) {
-        _qrCodeCtrls[0].clear();
-        return;
+      _rows.removeAt(index);
+      if (widget.primitive == 'WIFI') {
+        _wifiIdTypes.removeAt(index);
       }
-      _qrCodeCtrls[index].dispose();
-      _qrCodeCtrls.removeAt(index);
     });
   }
 
-  /// row의 컨트롤러 텍스트를 타입에 맞춰 dict로 변환
-  Map<String, dynamic> _rowToMap(
-    Map<String, TextEditingController> row,
-    List<ConfigField> fields,
-  ) {
+  Map<String, dynamic> _rowToMap(int index) {
+    final row = _rows[index];
     final m = <String, dynamic>{};
-    for (final f in fields) {
+    for (final f in _fields) {
       final text = row[f.key]?.text.trim() ?? '';
       if (text.isEmpty) continue;
       switch (f.type) {
@@ -859,692 +958,45 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
           break;
       }
     }
+    // WIFI: identifier_type 추가
+    if (widget.primitive == 'WIFI') {
+      m['identifier_type'] = _wifiIdTypes[index];
+    }
     return m;
   }
 
-  /// 신 schema로 직렬화 후 onSave 호출 (빈 row는 제외)
-  void _save() {
-    final newConfig = <String, dynamic>{};
-    for (final group in _partGroups) {
-      final fields = rowFieldsForPart(group.partType);
-      final list = _rowsByKey[group.configKey]!;
-      final arr = <Map<String, dynamic>>[];
-      for (final row in list) {
-        final m = _rowToMap(row, fields);
-        if (m.isNotEmpty) arr.add(m);
-      }
-      newConfig[group.configKey] = arr;
+  Future<void> _onSave() async {
+    final targets = <Map<String, dynamic>>[];
+    for (int i = 0; i < _rows.length; i++) {
+      final m = _rowToMap(i);
+      if (m.isEmpty) continue;
+      // WIFI의 경우 ssid 또는 identifier_value 중 최소 하나는 있어야 의미가 있음
+      targets.add(m);
     }
-    if (_hasQrSection) {
-      final codes = _qrCodeCtrls
-          .map((c) => c.text.trim())
-          .where((s) => s.isNotEmpty)
-          .toList();
-      newConfig['qr_codes'] = codes;
-    }
-    widget.onSave(newConfig);
+    final config = <String, dynamic>{'targets': targets};
+    await widget.onSave(_localEnabled, config);
   }
 
-  /// 프리셋 불러오기 다이얼로그 — 부품 그룹 단위
-  /// 1) partType 프리셋 목록에서 1개 선택
-  /// 2) 적용 방식 선택: "현재 row 채우기"(덮어쓰기) 또는 "새 row 추가"(append)
-  Future<void> _showLoadPresetDialog(PartGroup group) async {
-    final partLabel = partDisplayNameOf(group.partType);
-    final fields = rowFieldsForPart(group.partType);
-
-    List<VerificationPreset> presets = [];
-    try {
-      presets = await widget.apiService.getPresets(methodType: group.partType);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$partLabel 프리셋을 불러올 수 없습니다')),
-        );
-      }
-      return;
-    }
-    if (!mounted) return;
-
-    if (presets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$partLabel 프리셋이 없습니다'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    // 1) 프리셋 선택
-    final selected = await showDialog<VerificationPreset>(
+  /// GPS 지도 픽업 다이얼로그 호출 → 결과를 row 컨트롤러에 반영
+  Future<void> _openGpsPicker(int i) async {
+    final latText = _rows[i]['lat']?.text.trim() ?? '';
+    final lngText = _rows[i]['lng']?.text.trim() ?? '';
+    final radiusText = _rows[i]['radius_m']?.text.trim() ?? '';
+    final result = await showDialog<GpsPickResult>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('$partLabel 프리셋 선택'),
-        content: SizedBox(
-          width: 480,
-          height: 360,
-          child: ListView.separated(
-            itemCount: presets.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final p = presets[index];
-              // 신 schema의 targets 배열 개수 표시
-              final tList = extractTargets(p.configData, 'targets', fields);
-              final summary = p.memo ??
-                  (tList.isEmpty
-                      ? '(빈 프리셋)'
-                      : '${tList.length}개 대상 · ${tList.first.entries.map((e) => '${e.key}: ${e.value}').join(' / ')}');
-              return ListTile(
-                title: Text(p.name),
-                subtitle: Text(
-                  summary,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12),
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.pop(ctx, p),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('취소'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (_) => GpsPickerDialog(
+        initialLat: double.tryParse(latText),
+        initialLng: double.tryParse(lngText),
+        initialRadiusMeters: int.tryParse(radiusText),
       ),
     );
-    if (selected == null || !mounted) return;
-
-    // 프리셋의 타겟 추출 (신 schema 우선, 단일 dict 폴백)
-    final presetTargets =
-        extractTargets(selected.configData, 'targets', fields);
-    if (presetTargets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('"${selected.name}" 프리셋에 적용 가능한 값이 없습니다'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    // 2) 적용 방식 선택
-    final mode = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('"${selected.name}" 적용 방식'),
-        content: Text(
-            '이 프리셋에 ${presetTargets.length}개 대상이 있습니다.\n어떻게 적용할까요?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('취소'),
-          ),
-          TextButton.icon(
-            icon: const Icon(Icons.swap_horiz, size: 18),
-            label: const Text('현재 row 채우기 (덮어쓰기)'),
-            onPressed: () => Navigator.pop(ctx, 'replace'),
-          ),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('새 row 추가'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: widget.color,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () => Navigator.pop(ctx, 'append'),
-          ),
-        ],
-      ),
-    );
-    if (mode == null || !mounted) return;
-
-    // 적용
+    if (result == null || !mounted) return;
     setState(() {
-      final list = _rowsByKey[group.configKey]!;
-      if (mode == 'replace') {
-        // 기존 row 모두 폐기 후 프리셋 row로 대체
-        for (final row in list) {
-          for (final c in row.values) {
-            c.dispose();
-          }
-        }
-        list.clear();
-        for (final t in presetTargets) {
-          list.add(_makeRowControllers(fields, t));
-        }
-        if (list.isEmpty) {
-          list.add(_makeRowControllers(fields, const <String, dynamic>{}));
-        }
-      } else {
-        // append: 기존 row 뒤에 프리셋 row 추가
-        for (final t in presetTargets) {
-          list.add(_makeRowControllers(fields, t));
-        }
-      }
+      _rows[i]['lat']?.text = result.latitude.toStringAsFixed(6);
+      _rows[i]['lng']?.text = result.longitude.toStringAsFixed(6);
+      _rows[i]['radius_m']?.text = result.radiusMeters.toString();
     });
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              '"${selected.name}" $partLabel 프리셋을 ${mode == 'replace' ? '덮어쓰기' : '추가'}했습니다 (저장 버튼을 눌러 적용)'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
-  }
-
-  /// QR 프리셋(method_type='QR') 카탈로그에서 페이로드를 골라 _qrCodeCtrls에 추가
-  /// - 같은 페이로드는 중복 추가하지 않는다 (현재 입력 텍스트 기준)
-  /// - 빈 row가 1개만 있고 비어있다면 그 row에 첫 페이로드를 채워넣는다
-  Future<void> _showLoadQrPresetDialog() async {
-    List<VerificationPreset> presets = [];
-    try {
-      presets = await widget.apiService.getPresets(methodType: 'QR');
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('QR 프리셋을 불러올 수 없습니다')),
-        );
-      }
-      return;
-    }
-    if (!mounted) return;
-
-    // 빈 상태: 안내만 표시하고 닫기
-    if (presets.isEmpty) {
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('QR 프리셋 선택'),
-          content: const SizedBox(
-            width: 420,
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Text('등록된 QR 프리셋이 없습니다'),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('닫기'),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    // 프리셋 카드 리스트에서 1개 선택
-    final selected = await showDialog<VerificationPreset>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('QR 프리셋 선택'),
-        content: SizedBox(
-          width: 480,
-          height: 360,
-          child: ListView.separated(
-            itemCount: presets.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final p = presets[index];
-              final codes = extractQrCodes(p.configData);
-              final summary = p.memo ??
-                  (codes.isEmpty
-                      ? '(빈 프리셋)'
-                      : '${codes.length}개 · ${codes.take(2).join(', ')}${codes.length > 2 ? ' …' : ''}');
-              return ListTile(
-                title: Text(p.name),
-                subtitle: Text(
-                  summary,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12),
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.pop(ctx, p),
-              );
-            },
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('취소'),
-          ),
-        ],
-      ),
-    );
-    if (selected == null || !mounted) return;
-
-    final newCodes = extractQrCodes(selected.configData)
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-    if (newCodes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('"${selected.name}" 프리셋에 QR 페이로드가 없습니다'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    // 적용: 기존 입력값에 없는 페이로드만 추가
-    setState(() {
-      // 현재 보유 페이로드 (공백 제거 후 비어있지 않은 것만)
-      final existing = _qrCodeCtrls
-          .map((c) => c.text.trim())
-          .where((s) => s.isNotEmpty)
-          .toSet();
-
-      // 빈 row(첫 ctrl이 비어있는 경우)는 첫 신규 페이로드로 채움
-      var idx = 0;
-      if (_qrCodeCtrls.isNotEmpty &&
-          _qrCodeCtrls.first.text.trim().isEmpty &&
-          idx < newCodes.length) {
-        _qrCodeCtrls.first.text = newCodes[idx];
-        existing.add(newCodes[idx]);
-        idx++;
-      }
-      // 나머지는 새 row로 추가 (중복 제외)
-      for (; idx < newCodes.length; idx++) {
-        final code = newCodes[idx];
-        if (existing.contains(code)) continue;
-        _qrCodeCtrls.add(TextEditingController(text: code));
-        existing.add(code);
-      }
-    });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('"${selected.name}" QR 프리셋을 추가했습니다 (저장 버튼을 눌러 적용)'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
-  }
-
-  /// 현재 입력값을 프리셋으로 저장 (신 schema 직렬화)
-  Future<void> _showSaveAsPresetDialog() async {
-    final nameCtrl = TextEditingController();
-    final memoCtrl = TextEditingController();
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('${widget.method.displayName} 프리셋으로 저장'),
-        content: SizedBox(
-          width: 360,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                decoration: const InputDecoration(
-                  labelText: '이름 *',
-                  hintText: '예: 사무실 정문 NFC',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: memoCtrl,
-                maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: '메모',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: widget.color,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('저장'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    final name = nameCtrl.text.trim();
-    if (name.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('이름을 입력하세요')),
-        );
-      }
-      return;
-    }
-
-    // 현재 row들의 신 schema 직렬화 (빈 row 제외)
-    final config = <String, dynamic>{};
-    for (final group in _partGroups) {
-      final fields = rowFieldsForPart(group.partType);
-      final list = _rowsByKey[group.configKey]!;
-      final arr = <Map<String, dynamic>>[];
-      for (final row in list) {
-        final m = _rowToMap(row, fields);
-        if (m.isNotEmpty) arr.add(m);
-      }
-      if (arr.isNotEmpty) config[group.configKey] = arr;
-    }
-    if (_hasQrSection) {
-      final codes = _qrCodeCtrls
-          .map((c) => c.text.trim())
-          .where((s) => s.isNotEmpty)
-          .toList();
-      if (codes.isNotEmpty) config['qr_codes'] = codes;
-    }
-
-    try {
-      await widget.apiService.createPreset(
-        name: name,
-        methodType: widget.method.methodType,
-        configData: config,
-        memo: memoCtrl.text.trim().isEmpty ? null : memoCtrl.text.trim(),
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('"$name" 프리셋이 저장되었습니다'),
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('프리셋 저장에 실패했습니다')),
-        );
-      }
-    }
-  }
-
-  /// 부품 그룹별 "프리셋 불러오기" 버튼 위젯 리스트
-  List<Widget> _buildPresetLoadButtons() {
-    if (_partGroups.length <= 1) {
-      // 단일 부품: "프리셋 불러오기" 단일 버튼
-      final group = _partGroups.first;
-      return [
-        OutlinedButton.icon(
-          icon: const Icon(Icons.bookmark_outline, size: 18),
-          label: const Text('프리셋 불러오기'),
-          onPressed: () => _showLoadPresetDialog(group),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: widget.color,
-            side: BorderSide(color: widget.color.withOpacity(0.6)),
-          ),
-        ),
-      ];
-    }
-    // 복합 메서드: 부품별 버튼 N개
-    return _partGroups.map((group) {
-      final label = '${partDisplayNameOf(group.partType)} 프리셋';
-      return OutlinedButton.icon(
-        icon: const Icon(Icons.bookmark_outline, size: 18),
-        label: Text(label),
-        onPressed: () => _showLoadPresetDialog(group),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: widget.color,
-          side: BorderSide(color: widget.color.withOpacity(0.6)),
-        ),
-      );
-    }).toList();
-  }
-
-  /// 부품 그룹 섹션 빌드 (헤더 + row 카드들 + 추가 버튼)
-  Widget _buildPartSection(PartGroup group) {
-    final fields = rowFieldsForPart(group.partType);
-    final rows = _rowsByKey[group.configKey]!;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // 섹션 헤더
-        Padding(
-          padding: const EdgeInsets.only(top: 4, bottom: 6),
-          child: Row(
-            children: [
-              Text(
-                group.label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: widget.color,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: widget.color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${rows.length}개',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: widget.color,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        // row 카드들
-        ...List.generate(rows.length, (i) {
-          return Card(
-            elevation: 0,
-            margin: const EdgeInsets.only(bottom: 8),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(color: Colors.grey.withOpacity(0.3)),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // row 헤더 (인덱스 + 삭제)
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: widget.color.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '#${i + 1}',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: widget.color,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 20),
-                        tooltip: rows.length == 1 ? '값 비우기' : '이 row 삭제',
-                        color: Colors.red,
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _removeRow(group, i),
-                      ),
-                    ],
-                  ),
-                  // row 필드
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 12,
-                    children: fields.map((field) {
-                      return SizedBox(
-                        width: 220,
-                        child: TextField(
-                          controller: rows[i][field.key],
-                          decoration: InputDecoration(
-                            labelText: field.label,
-                            helperText: field.hint,
-                            border: const OutlineInputBorder(),
-                            isDense: true,
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 10),
-                          ),
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }),
-        // "+ 추가" 버튼 (카드 아래)
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            icon: const Icon(Icons.add, size: 18),
-            label: Text('${group.label} 추가'),
-            onPressed: () => _addRow(group),
-            style: TextButton.styleFrom(foregroundColor: widget.color),
-          ),
-        ),
-        const SizedBox(height: 8),
-      ],
-    );
-  }
-
-  /// QR 코드 섹션 빌드 (GPS_QR/WIFI_QR/QR 단독)
-  Widget _buildQrCodesSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 4, bottom: 6),
-          child: Row(
-            children: [
-              Text(
-                'QR 코드',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: widget.color,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: widget.color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${_qrCodeCtrls.length}개',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: widget.color,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              // QR 프리셋(method_type='QR' 카탈로그)에서 페이로드 가져오기
-              TextButton.icon(
-                icon: const Icon(Icons.bookmark_add, size: 18),
-                label: const Text('QR 프리셋에서 추가'),
-                onPressed: _showLoadQrPresetDialog,
-                style: TextButton.styleFrom(foregroundColor: widget.color),
-              ),
-            ],
-          ),
-        ),
-        ...List.generate(_qrCodeCtrls.length, (i) {
-          return Card(
-            elevation: 0,
-            margin: const EdgeInsets.only(bottom: 8),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(color: Colors.grey.withOpacity(0.3)),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: widget.color.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      '#${i + 1}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: widget.color,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: _qrCodeCtrls[i],
-                      decoration: const InputDecoration(
-                        labelText: 'QR 페이로드',
-                        helperText: '예: WC-GN-QR-001',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
-                      ),
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 20),
-                    tooltip: _qrCodeCtrls.length == 1 ? '값 비우기' : 'QR 삭제',
-                    color: Colors.red,
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => _removeQr(i),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('QR 코드 추가'),
-            onPressed: _addQr,
-            style: TextButton.styleFrom(foregroundColor: widget.color),
-          ),
-        ),
-        const SizedBox(height: 8),
-      ],
-    );
   }
 
   @override
@@ -1555,107 +1007,412 @@ class _MethodConfigEditorState extends State<_MethodConfigEditor> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Divider(),
-          const SizedBox(height: 8),
 
-          // 유저 모드: 단일 활성 인증 방식 정책 안내 (백엔드가 자동 적용)
-          if (widget.isUserMode)
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Colors.orange.withOpacity(0.4)),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.warning_amber, size: 18, color: Colors.orange),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '유저는 한 번에 하나의 인증 방식만 활성됩니다. 다른 방식을 켜면 기존 활성 방식은 자동 비활성화됩니다.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFFB76E00),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          // 유저 모드에서 비오버라이드 안내
-          if (widget.isUserMode && !widget.isOverridden)
-            Container(
-              margin: const EdgeInsets.only(bottom: 12),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.blue),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '근무지 기본값이 적용 중입니다. 저장하면 이 유저만의 오버라이드가 생성됩니다.',
-                      style: TextStyle(fontSize: 12, color: Colors.blue),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          // 부품 그룹별 동적 row 섹션
-          ..._partGroups.map(_buildPartSection),
-
-          // QR 코드 섹션 (GPS_QR/WIFI_QR)
-          if (_hasQrSection) _buildQrCodesSection(),
-
-          const SizedBox(height: 8),
-
-          // 버튼 행 (좌측: QR/프리셋 / 우측: 복귀/저장)
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          // 활성 토글
+          Row(
             children: [
-              if (widget.hasQr && widget.onShowQr != null)
-                OutlinedButton.icon(
-                  icon: const Icon(Icons.qr_code, size: 18),
-                  label: const Text('QR 보기'),
-                  onPressed: widget.onShowQr,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: widget.color,
-                    side: BorderSide(color: widget.color),
+              const Text('활성 상태:',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              const SizedBox(width: 8),
+              Switch(
+                value: _localEnabled,
+                activeColor: widget.color,
+                onChanged: (v) => setState(() => _localEnabled = v),
+              ),
+              const SizedBox(width: 4),
+              Text(_localEnabled ? 'ON' : 'OFF',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color:
+                          _localEnabled ? widget.color : Colors.grey)),
+              const SizedBox(width: 16),
+              if (widget.primitive == 'BEACON')
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'rssi_threshold는 서버가 자동 계산 (RSSI = TxPower − 20·log10(d))',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
                   ),
                 ),
-              // 프리셋 불러오기 (복합 메서드는 부품별 버튼으로 분리)
-              ..._buildPresetLoadButtons(),
-              // 현재 값을 프리셋으로 저장
-              OutlinedButton.icon(
-                icon: const Icon(Icons.bookmark_add_outlined, size: 18),
-                label: const Text('프리셋으로 저장'),
-                onPressed: _showSaveAsPresetDialog,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: widget.color,
-                  side: BorderSide(color: widget.color.withOpacity(0.6)),
-                ),
-              ),
-              // 기본값으로 복귀 (유저 모드에서 오버라이드 있을 때만)
-              if (widget.onReset != null)
-                TextButton.icon(
-                  icon: const Icon(Icons.restore, size: 18),
-                  label: const Text('기본값 복귀'),
-                  onPressed: widget.onReset,
-                  style: TextButton.styleFrom(foregroundColor: Colors.orange),
-                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // row 카드들
+          for (int i = 0; i < _rows.length; i++) _buildRowCard(i),
+
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              icon: const Icon(Icons.add, size: 18),
+              label: Text('${partDisplayNameOf(widget.primitive)} 추가'),
+              onPressed: _addRow,
+              style: TextButton.styleFrom(foregroundColor: widget.color),
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // 버튼 행
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
               ElevatedButton.icon(
                 icon: const Icon(Icons.save, size: 18),
                 label: const Text('저장'),
-                onPressed: _save,
+                onPressed: _onSave,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: widget.color,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRowCard(int i) {
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 8),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: Colors.grey.withOpacity(0.3)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: widget.color.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text('#${i + 1}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: widget.color,
+                        fontWeight: FontWeight.w700,
+                      )),
+                ),
+                const Spacer(),
+                if (widget.primitive == 'GPS')
+                  TextButton.icon(
+                    icon: const Icon(Icons.map_outlined, size: 18),
+                    label: const Text('지도에서 선택'),
+                    onPressed: () => _openGpsPicker(i),
+                    style: TextButton.styleFrom(
+                      foregroundColor: widget.color,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                  tooltip: _rows.length == 1 ? '값 비우기' : '이 row 삭제',
+                  color: Colors.red,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _removeRow(i),
+                ),
+              ],
+            ),
+            if (widget.primitive == 'WIFI')
+              _buildWifiRowFields(i)
+            else
+              _buildGenericRowFields(i),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 일반 row 필드 (GPS / NFC / BEACON)
+  Widget _buildGenericRowFields(int i) {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: _fields.map((field) {
+        return SizedBox(
+          width: 220,
+          child: TextField(
+            controller: _rows[i][field.key],
+            keyboardType: field.type == ConfigFieldType.int_ ||
+                    field.type == ConfigFieldType.double_
+                ? const TextInputType.numberWithOptions(
+                    decimal: true, signed: true)
+                : TextInputType.text,
+            decoration: InputDecoration(
+              labelText: field.label,
+              helperText: field.hint,
+              border: const OutlineInputBorder(),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 10),
+            ),
+            style: const TextStyle(fontSize: 14),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  /// WiFi row 필드 (SSID + bssid/ip 라디오 + identifier_value 단일 필드)
+  Widget _buildWifiRowFields(int i) {
+    final type = _wifiIdTypes[i];
+    final identifierLabel = type == 'ip' ? 'IP 주소' : 'BSSID (MAC)';
+    final identifierHint = type == 'ip'
+        ? '예: 192.168.10.5 또는 게이트웨이 IP'
+        : '예: aa:bb:cc:dd:ee:ff (콜론/하이픈 무관)';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // SSID
+        SizedBox(
+          width: 320,
+          child: TextField(
+            controller: _rows[i]['ssid'],
+            decoration: const InputDecoration(
+              labelText: 'WiFi SSID',
+              helperText: '네트워크 이름 (항상 비교)',
+              border: OutlineInputBorder(),
+              isDense: true,
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            style: const TextStyle(fontSize: 14),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // 식별자 타입 라디오
+        Row(
+          children: [
+            const Text('식별자: ',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            const SizedBox(width: 8),
+            ChoiceChip(
+              label: const Text('BSSID'),
+              selected: type == 'bssid',
+              selectedColor: widget.color.withOpacity(0.2),
+              onSelected: (_) =>
+                  setState(() => _wifiIdTypes[i] = 'bssid'),
+            ),
+            const SizedBox(width: 6),
+            ChoiceChip(
+              label: const Text('IP'),
+              selected: type == 'ip',
+              selectedColor: widget.color.withOpacity(0.2),
+              onSelected: (_) => setState(() => _wifiIdTypes[i] = 'ip'),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              type == 'ip'
+                  ? 'IP 주소로 매칭 (게이트웨이/단말 IP)'
+                  : 'MAC 주소로 매칭 (정확도 높음)',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // identifier_value 단일 필드
+        SizedBox(
+          width: 360,
+          child: TextField(
+            controller: _rows[i]['identifier_value'],
+            decoration: InputDecoration(
+              labelText: identifierLabel,
+              helperText: identifierHint,
+              border: const OutlineInputBorder(),
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12, vertical: 10),
+            ),
+            style: const TextStyle(fontSize: 14),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// =====================================================================
+// QR primitive 편집 위젯
+// - codes[] 멀티 입력 + ON/OFF 토글
+// - 프리셋 카탈로그(method_type='QR')에서 페이로드 끼워넣기 지원
+// =====================================================================
+class _QrPrimitiveEditor extends StatefulWidget {
+  final Color color;
+  final VerificationMethod method;
+  final Future<void> Function(bool enabled, Map<String, dynamic> config)
+      onSave;
+
+  const _QrPrimitiveEditor({
+    super.key,
+    required this.color,
+    required this.method,
+    required this.onSave,
+  });
+
+  @override
+  State<_QrPrimitiveEditor> createState() => _QrPrimitiveEditorState();
+}
+
+class _QrPrimitiveEditorState extends State<_QrPrimitiveEditor> {
+  final List<TextEditingController> _codeCtrls = [];
+  bool _localEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _localEnabled = widget.method.enabled;
+    final codes = extractQrCodes(widget.method.config);
+    final initial = codes.isEmpty ? [''] : codes;
+    for (final c in initial) {
+      _codeCtrls.add(TextEditingController(text: c));
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _codeCtrls) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _addCode() {
+    setState(() => _codeCtrls.add(TextEditingController()));
+  }
+
+  void _removeCode(int index) {
+    setState(() {
+      if (_codeCtrls.length <= 1) {
+        _codeCtrls[0].clear();
+        return;
+      }
+      _codeCtrls[index].dispose();
+      _codeCtrls.removeAt(index);
+    });
+  }
+
+  Future<void> _onSave() async {
+    final codes = _codeCtrls
+        .map((c) => c.text.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    await widget.onSave(_localEnabled, {'codes': codes});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(),
+          Row(
+            children: [
+              const Text('활성 상태:',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              const SizedBox(width: 8),
+              Switch(
+                value: _localEnabled,
+                activeColor: widget.color,
+                onChanged: (v) => setState(() => _localEnabled = v),
+              ),
+              const SizedBox(width: 4),
+              Text(_localEnabled ? 'ON' : 'OFF',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color:
+                          _localEnabled ? widget.color : Colors.grey)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text('QR 페이로드 (codes[])',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          for (int i = 0; i < _codeCtrls.length; i++)
+            Card(
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: BorderSide(color: Colors.grey.withOpacity(0.3)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: widget.color.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text('#${i + 1}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: widget.color,
+                            fontWeight: FontWeight.w700,
+                          )),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _codeCtrls[i],
+                        decoration: const InputDecoration(
+                          labelText: 'QR 페이로드',
+                          helperText: '예: WC-HQ-QR-001',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 10),
+                        ),
+                        style: const TextStyle(fontSize: 14),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 20),
+                      tooltip:
+                          _codeCtrls.length == 1 ? '값 비우기' : 'QR 삭제',
+                      color: Colors.red,
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _removeCode(i),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('QR 코드 추가'),
+              onPressed: _addCode,
+              style: TextButton.styleFrom(foregroundColor: widget.color),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              ElevatedButton.icon(
+                icon: const Icon(Icons.save, size: 18),
+                label: const Text('저장'),
+                onPressed: _onSave,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: widget.color,
                   foregroundColor: Colors.white,

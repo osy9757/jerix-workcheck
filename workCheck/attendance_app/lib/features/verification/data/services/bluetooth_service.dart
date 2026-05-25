@@ -20,8 +20,9 @@ import '../../domain/verification_strategy.dart';
 @Named('bluetooth')
 @LazySingleton(as: VerificationStrategy)
 class BluetoothVerificationService implements VerificationStrategy {
-  // RSSI 기본 임계값 (이 값보다 약하면 무시)
-  static const int defaultRssiThreshold = -80;
+  // v2 리팩토링: 클라이언트 RSSI 1차 필터 제거.
+  // 감지된 모든 비콘을 서버에 전송하고, RSSI 임계값 판정은 서버가 단일 진실로 수행한다.
+  // (기존 -80 하드코딩은 admin web에서 임계값을 조정해도 무효화되는 문제가 있었음)
 
   /// iOS CoreLocation ranging에 사용하는 기본 iBeacon UUID
   ///
@@ -169,19 +170,18 @@ class BluetoothVerificationService implements VerificationStrategy {
               'RSSI: ${beacon.rssi}, accuracy: ${beacon.accuracy}m, '
               'proximity: ${beacon.proximity}');
 
-          if (beacon.rssi >= defaultRssiThreshold || beacon.rssi == 0) {
-            final exists = detectedBeacons.any((b) =>
-                b['major'] == beacon.major && b['minor'] == beacon.minor);
-            if (!exists) {
-              detectedBeacons.add({
-                'uuid': beacon.proximityUUID,
-                'major': beacon.major,
-                'minor': beacon.minor,
-                'rssi': beacon.rssi,
-                'accuracy': beacon.accuracy,
-                'proximity': beacon.proximity.toString(),
-              });
-            }
+          // 클라이언트 RSSI 필터링 없음. 발견된 비콘은 모두 누적 (UUID+Major+Minor 중복만 제거)
+          final exists = detectedBeacons.any((b) =>
+              b['major'] == beacon.major && b['minor'] == beacon.minor);
+          if (!exists) {
+            detectedBeacons.add({
+              'uuid': beacon.proximityUUID,
+              'major': beacon.major,
+              'minor': beacon.minor,
+              'rssi': beacon.rssi,
+              'accuracy': beacon.accuracy,
+              'proximity': beacon.proximity.toString(),
+            });
           }
         }
       });
@@ -250,14 +250,13 @@ class BluetoothVerificationService implements VerificationStrategy {
         if (beacon != null) {
           debugPrint('[Beacon/Android] iBeacon 파싱 - UUID: ${beacon['uuid']}, '
               'Major: ${beacon['major']}, Minor: ${beacon['minor']}, RSSI: ${result.rssi}');
-          if (result.rssi >= defaultRssiThreshold) {
-            final exists = detectedBeacons.any((b) =>
-                b['uuid'] == beacon['uuid'] &&
-                b['major'] == beacon['major'] &&
-                b['minor'] == beacon['minor']);
-            if (!exists) {
-              detectedBeacons.add(beacon);
-            }
+          // 클라이언트 RSSI 필터링 없음. UUID+Major+Minor 중복만 제거 후 서버에 위임
+          final exists = detectedBeacons.any((b) =>
+              b['uuid'] == beacon['uuid'] &&
+              b['major'] == beacon['major'] &&
+              b['minor'] == beacon['minor']);
+          if (!exists) {
+            detectedBeacons.add(beacon);
           }
         }
       }

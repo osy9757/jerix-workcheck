@@ -7,8 +7,7 @@ import '../../../../core/usecases/usecase.dart';
 import '../../../auth/data/datasources/local/auth_local_datasource.dart';
 import '../../../verification/data/verification_manager.dart';
 import '../../../verification/domain/verification_method.dart';
-import '../../../workplace/domain/entities/workplace_config_entity.dart';
-import '../../../workplace/domain/usecases/get_workplace_config_usecase.dart';
+import '../../domain/entities/attendance_init_entity.dart';
 import '../../domain/entities/attendance_type.dart';
 import '../../domain/entities/today_status_entity.dart';
 import '../../domain/usecases/get_today_status_usecase.dart';
@@ -21,20 +20,21 @@ part 'attendance_bloc.freezed.dart';
 @injectable
 class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
   final GetTodayStatusUseCase _getTodayStatus;
-  final RegisterAttendanceUseCase _registerAttendance;
+  final InitAttendanceUseCase _initAttendance;
+  final SubmitAttendanceUseCase _submitAttendance;
   final VerificationManager _verificationManager;
-  final GetWorkplaceConfigUseCase _getWorkplaceConfig;
   final AuthLocalDatasource _authLocal;
 
-  /// 근무지 설정 (freezed regeneration 없이 별도 보관)
-  WorkplaceConfigEntity? _workplaceConfig;
-  WorkplaceConfigEntity? get workplaceConfig => _workplaceConfig;
+  /// 최근 init 응답 캐시 (지도 GPS 마커/반경 표시용)
+  /// state에 보관 시 freezed 재생성 비용이 높아 별도 필드로 유지한다.
+  AttendanceInitEntity? _lastInit;
+  AttendanceInitEntity? get lastInit => _lastInit;
 
   AttendanceBloc(
     this._getTodayStatus,
-    this._registerAttendance,
+    this._initAttendance,
+    this._submitAttendance,
     this._verificationManager,
-    this._getWorkplaceConfig,
     this._authLocal,
   ) : super(const AttendanceState()) {
     on<AttendanceStarted>(_onStarted);
@@ -42,60 +42,59 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
     on<AttendanceAvailableMethodsRequested>(_onAvailableMethodsRequested);
   }
 
-  /// 초기 로드: 근무지 설정 + 오늘 상태 + 사용 가능한 인증 방식
+  /// 초기 로드: 오늘 상태 + 디바이스 가용 인증 방식 + (가능하면) init 미리 호출
   Future<void> _onStarted(
     AttendanceStarted event,
     Emitter<AttendanceState> emit,
   ) async {
     emit(state.copyWith(uiState: AttendanceUiState.loading));
 
-    // 병렬 실행: 근무지 설정 + 오늘 상태 + 디바이스 가용 방식
-    final configFuture = _getWorkplaceConfig(const NoParams());
+    // 병렬 실행: 오늘 상태 + 디바이스 가용 방식
     final statusFuture = _getTodayStatus(const NoParams());
     final deviceMethodsFuture = _verificationManager.getAvailableMethods();
 
-    final configResult = await configFuture;
     final statusResult = await statusFuture;
     final deviceMethods = await deviceMethodsFuture;
 
-    // 근무지 설정 저장 (설정값 참조용)
-    configResult.fold(
-      (failure) {},
-      (config) { _workplaceConfig = config; },
+    // 다음 액션 타입 결정 (출근 전이면 clockIn init, 출근 후면 clockOut init)
+    final TodayStatusEntity? statusEntity = statusResult.fold(
+      (_) => null,
+      (status) => status,
+    );
+    final nextType = (statusEntity == null || !statusEntity.isClockedIn)
+        ? AttendanceType.clockIn
+        : AttendanceType.clockOut;
+
+    // 다음 액션 기준으로 init을 미리 한 번 호출하여 지도/아이콘 표시에 사용한다.
+    // 실패해도 화면 표시는 계속 진행 (출근/퇴근 후 완료 상태에서 init 400이 날 수 있음)
+    final initResult = await _initAttendance(InitAttendanceParams(type: nextType));
+    initResult.fold(
+      (_) {},
+      (init) => _lastInit = init,
     );
 
-    // 로그인 시 저장된 서버 활성 인증 방법 조회
+    // 서버 활성 인증 방법 (아이콘 표시용). init이 성공하면 init 결과 우선, 실패 시 로컬 저장값 폴백.
     final savedMethodNames = await _authLocal.getEnabledMethods();
     final savedServerMethods = savedMethodNames
         ?.map((name) => VerificationMethod.fromApiName(name))
         .whereType<VerificationMethod>()
         .toList();
 
-    // 서버 활성 인증 방법 (아이콘 표시용, 디바이스 가용 여부 무관)
-    var serverMethods = <VerificationMethod>[];
-    // 서버 설정이 있으면 그것만 사용. 디바이스 가용 방식과 교집합이 비면 빈 배열로 두어
-    // 출근 시 명확한 에러("회사 인증 수단을 사용할 수 없습니다")가 뜨도록 함.
-    // 서버 설정이 전혀 없을 때만 디바이스 가용 방식 전체를 폴백으로 사용.
-    var methods = <VerificationMethod>[];
-    if (savedServerMethods != null && savedServerMethods.isNotEmpty) {
-      serverMethods = savedServerMethods;
-      methods = savedServerMethods.where(deviceMethods.contains).toList();
-    } else if (_workplaceConfig != null &&
-        _workplaceConfig!.enabledMethods.isNotEmpty) {
-      serverMethods = _workplaceConfig!.enabledMethods;
-      methods = _workplaceConfig!.enabledMethods
-          .where(deviceMethods.contains)
-          .toList();
-    } else {
-      // 서버 설정이 비어있을 때만 디바이스 가용 방식 전체 폴백
-      methods = deviceMethods;
-    }
+    final serverMethods = _lastInit?.requiredMethods.isNotEmpty == true
+        ? _lastInit!.requiredMethods
+        : (savedServerMethods ?? <VerificationMethod>[]);
+
+    // 디바이스 가용 ∩ 서버 활성 = 실제 실행 가능 method
+    // 서버 활성이 비어있을 때만 디바이스 가용 전체를 폴백으로 사용
+    final methods = serverMethods.isNotEmpty
+        ? serverMethods.where(deviceMethods.contains).toList()
+        : deviceMethods;
 
     // 진단 로그: 디바이스/서버/최종 인증 방식
     // ignore: avoid_print
     print('[Attendance.init] saved=$savedMethodNames '
         'parsed=${savedServerMethods?.map((m) => m.name).toList()} '
-        'workplaceConfigMethods=${_workplaceConfig?.enabledMethods.map((m) => m.name).toList()} '
+        'initMethods=${_lastInit?.requiredMethods.map((m) => m.name).toList()} '
         'deviceMethods=${deviceMethods.map((m) => m.name).toList()} '
         'finalMethods=${methods.map((m) => m.name).toList()}');
 
@@ -108,62 +107,85 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
       )),
       (status) => emit(state.copyWith(
         uiState: AttendanceUiState.loaded,
-        todayStatus: status as TodayStatusEntity,
+        todayStatus: status,
         availableMethods: methods,
         serverEnabledMethods: serverMethods,
       )),
     );
   }
 
-  /// 출퇴근 버튼 클릭 → availableMethods 전체 순차 인증 → 서버 등록
+  /// 출퇴근 버튼 클릭 → init 재호출 → required_methods 순차 인증 → submit
   Future<void> _onClockRequested(
     AttendanceClockRequested event,
     Emitter<AttendanceState> emit,
   ) async {
-    final methods = state.availableMethods;
-
-    // 진단 로그: 출근 시점 인증 방식 목록
-    // ignore: avoid_print
-    print('[Attendance.clock] availableMethods=${methods.map((m) => m.name).toList()} '
-        'serverEnabled=${state.serverEnabledMethods.map((m) => m.name).toList()}');
-
-    if (methods.isEmpty) {
-      // 서버 설정은 있는데 디바이스에서 사용 불가한 경우 안내 메시지 차별화
-      final serverHasMethods = state.serverEnabledMethods.isNotEmpty;
-      final msg = serverHasMethods
-          ? '회사가 허용한 인증 수단(${state.serverEnabledMethods.map((m) => m.label).join(", ")})을 '
-              '사용할 수 없습니다. NFC/블루투스/위치 등을 켜주세요.'
-          : '사용 가능한 인증 방식이 없습니다.';
-      emit(state.copyWith(
-        uiState: AttendanceUiState.error,
-        errorMessage: msg,
-      ));
-      return;
-    }
-
     final todayStatus = state.todayStatus;
     final type = (todayStatus == null || !todayStatus.isClockedIn)
         ? AttendanceType.clockIn
         : AttendanceType.clockOut;
 
-    // Step 1: 모든 인증 방식 순차 검증
     emit(state.copyWith(
       uiState: AttendanceUiState.verifying,
       errorMessage: null,
       successMessage: null,
+      errorCode: null,
     ));
 
-    // 인증 결과 판정은 모두 서버(VerificationService)가 수행한다.
-    // 클라이언트는 디바이스 스캔 결과를 그대로 verification_data에 담아 전송한다.
-    final combinedData = <String, dynamic>{};
-    for (final method in methods) {
-      final verificationResult = await _verificationManager.verify(method);
+    // Step 1: init 호출하여 최신 required_methods + configs 확보
+    final initResult = await _initAttendance(InitAttendanceParams(type: type));
+    final init = initResult.fold<AttendanceInitEntity?>((_) => null, (v) => v);
+    if (init == null) {
+      final failure = initResult.swap().getOrElse(
+            () => const UnknownFailure(message: '알 수 없는 오류'),
+          );
+      emit(state.copyWith(
+        uiState: AttendanceUiState.error,
+        errorMessage: failure.message,
+        errorCode: failure is ServerFailure ? failure.errorCode : null,
+      ));
+      return;
+    }
+    _lastInit = init;
 
-      if (!verificationResult.isVerified) {
+    final requiredMethods = init.requiredMethods;
+    // 진단 로그: 출퇴근 시점 init 결과
+    // ignore: avoid_print
+    print('[Attendance.clock] type=${type.name} '
+        'requiredMethods=${requiredMethods.map((m) => m.name).toList()} '
+        'rawRequired=${init.rawRequiredMethods} '
+        'configs=${init.configs.keys.toList()}');
+
+    if (requiredMethods.isEmpty) {
+      emit(state.copyWith(
+        uiState: AttendanceUiState.error,
+        errorMessage: '활성화된 인증 방법이 없습니다. 관리자에게 문의하세요.',
+      ));
+      return;
+    }
+
+    // 디바이스 가용 여부 확인
+    final deviceMethods = await _verificationManager.getAvailableMethods();
+    final missing =
+        requiredMethods.where((m) => !deviceMethods.contains(m)).toList();
+    if (missing.isNotEmpty) {
+      emit(state.copyWith(
+        uiState: AttendanceUiState.error,
+        errorMessage: '회사가 허용한 인증 수단(${missing.map((m) => m.label).join(', ')})을 '
+            '사용할 수 없습니다. NFC/블루투스/위치 등을 켜주세요.',
+      ));
+      return;
+    }
+
+    // Step 2: 각 method 순차 검증 (감지 데이터 수집 단계, 판정은 서버가 수행)
+    final verificationData = <String, dynamic>{};
+    for (final method in requiredMethods) {
+      final result = await _verificationManager.verify(method);
+
+      if (!result.isVerified) {
         // 로컬 인증 실패 → 기본적으로 errorCode 없음
         // 단, GPS 조작 감지 시 errorMessage에 "GPS_SPOOFED:" 프리픽스가 붙어있으면
         // errorCode를 'GPS_SPOOFED'로 설정하여 UI에서 전용 다이얼로그를 띄우게 함
-        final rawMessage = verificationResult.errorMessage ?? '';
+        final rawMessage = result.errorMessage ?? '';
         final isSpoofed = rawMessage.startsWith('GPS_SPOOFED:');
         final cleanMessage = isSpoofed
             ? rawMessage.substring('GPS_SPOOFED:'.length).trim()
@@ -179,20 +201,20 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
         return;
       }
 
-      // 성공한 인증 데이터를 평탄 구조로 합산 (서버가 기대하는 형태)
-      combinedData.addAll(verificationResult.data);
+      // method 키(소문자) → 방식별 값 맵으로 묶어 보낸다.
+      // 서버 contract: verification_data: { gps: {...}, wifi: {...}, beacon: {...}, ... }
+      verificationData[method.apiName] = result.data;
     }
 
-    // Step 2: 모든 인증 통과 → 서버 등록
+    // Step 3: 모든 method 수집 완료 → submit
     emit(state.copyWith(uiState: AttendanceUiState.registering));
 
-    final result = await _registerAttendance(RegisterAttendanceParams(
+    final submitResult = await _submitAttendance(SubmitAttendanceParams(
       type: type,
-      verificationMethod: methods.first,
-      verificationData: combinedData,
+      verificationData: verificationData,
     ));
 
-    result.fold(
+    submitResult.fold(
       (failure) => emit(state.copyWith(
         uiState: AttendanceUiState.error,
         errorMessage: failure.message,

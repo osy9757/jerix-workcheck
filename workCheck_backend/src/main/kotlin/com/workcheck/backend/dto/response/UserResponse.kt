@@ -2,14 +2,14 @@ package com.workcheck.backend.dto.response
 
 import java.time.OffsetDateTime
 
-// 직원 정보 응답 DTO
+// 직원 정보 응답 DTO (v2: workplace 필드 제거)
 data class UserResponse(
     val id: Long,
     val companyCode: String,
     val employeeId: String,
     val name: String,
-    val workplaceId: Long? = null,       // 소속 근무지 ID
-    val workplaceName: String? = null,   // 소속 근무지 이름
+    val email: String? = null,
+    val department: String? = null,
     val createdAt: OffsetDateTime
 )
 

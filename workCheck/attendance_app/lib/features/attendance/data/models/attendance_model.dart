@@ -10,7 +10,7 @@ part 'attendance_model.g.dart';
 
 /// 출퇴근 기록 API 응답 모델
 @freezed
-class AttendanceModel with _$AttendanceModel {
+abstract class AttendanceModel with _$AttendanceModel {
   const AttendanceModel._();
 
   const factory AttendanceModel({
@@ -22,10 +22,15 @@ class AttendanceModel with _$AttendanceModel {
     /// ISO 8601 형식의 기록 시각 문자열
     required String timestamp,
 
-    /// 인증 방식 이름
+    /// 대표 인증 방식 이름 (활성 method 중 첫 번째, 소문자)
     @JsonKey(name: 'verification_method') required String verificationMethod,
 
-    /// 인증 상세 데이터
+    /// AND 통과한 모든 method 키 (소문자). 누락 시 빈 배열.
+    @Default([])
+    @JsonKey(name: 'verified_methods')
+    List<String> verifiedMethods,
+
+    /// 인증 상세 데이터 (method 키 → 방식별 값 맵)
     @JsonKey(name: 'verification_data')
     required Map<String, dynamic> verificationData,
   }) = _AttendanceModel;
@@ -51,7 +56,7 @@ class AttendanceModel with _$AttendanceModel {
 
 /// 오늘 출퇴근 상태 API 응답 모델
 @freezed
-class TodayStatusModel with _$TodayStatusModel {
+abstract class TodayStatusModel with _$TodayStatusModel {
   const TodayStatusModel._();
 
   const factory TodayStatusModel({
@@ -66,28 +71,45 @@ class TodayStatusModel with _$TodayStatusModel {
       _$TodayStatusModelFromJson(json);
 }
 
-/// 출퇴근 등록 요청 모델
+/// 출퇴근 init 응답 모델 (v2)
+///
+/// `/clock-in/init`, `/clock-out/init` 응답.
+/// 어떤 method 데이터를 수집해 submit에 보내야 하는지 + method별 서버 설정값을 안내한다.
 @freezed
-class RegisterAttendanceRequest with _$RegisterAttendanceRequest {
-  const factory RegisterAttendanceRequest({
-    /// 출퇴근 유형 (CLOCK_IN / CLOCK_OUT)
-    required String type,
+abstract class AttendanceInitModel with _$AttendanceInitModel {
+  const factory AttendanceInitModel({
+    /// 수집해야 할 method 키 목록 (소문자: gps/wifi/nfc/beacon/qr)
+    @JsonKey(name: 'required_methods')
+    @Default([])
+    List<String> requiredMethods,
 
-    /// 인증 방식 이름
-    @JsonKey(name: 'verification_method') required String verificationMethod,
+    /// method 키 → 서버 설정값 (예: gps.targets[].lat/lng/radius_m)
+    @Default({})
+    Map<String, dynamic> configs,
+  }) = _AttendanceInitModel;
 
-    /// 인증 상세 데이터
+  factory AttendanceInitModel.fromJson(Map<String, dynamic> json) =>
+      _$AttendanceInitModelFromJson(json);
+}
+
+/// 출퇴근 submit 요청 모델 (v2)
+///
+/// `verification_data`는 method 키 → 방식별 값 맵 형태.
+/// 예: `{"gps":{"lat":37.5,"lng":127.0},"wifi":{"ssid":"OfficeWiFi",...}}`
+@freezed
+abstract class AttendanceSubmitRequest with _$AttendanceSubmitRequest {
+  const factory AttendanceSubmitRequest({
     @JsonKey(name: 'verification_data')
     required Map<String, dynamic> verificationData,
-  }) = _RegisterAttendanceRequest;
+  }) = _AttendanceSubmitRequest;
 
-  factory RegisterAttendanceRequest.fromJson(Map<String, dynamic> json) =>
-      _$RegisterAttendanceRequestFromJson(json);
+  factory AttendanceSubmitRequest.fromJson(Map<String, dynamic> json) =>
+      _$AttendanceSubmitRequestFromJson(json);
 }
 
 /// 히스토리 응답 모델 (월별 출퇴근 기록)
 @freezed
-class HistoryModel with _$HistoryModel {
+abstract class HistoryModel with _$HistoryModel {
   const HistoryModel._();
 
   const factory HistoryModel({
@@ -110,7 +132,7 @@ class HistoryModel with _$HistoryModel {
 
 /// 일별 출퇴근 기록 모델
 @freezed
-class DailyRecordModel with _$DailyRecordModel {
+abstract class DailyRecordModel with _$DailyRecordModel {
   const DailyRecordModel._();
 
   const factory DailyRecordModel({

@@ -16,14 +16,17 @@ abstract class ApiConstants {
   // 인증
   static const String login = '$apiPrefix/auth/login';
 
-  // 출퇴근
-  static const String clockIn = '$apiPrefix/attendance/clock-in';
-  static const String clockOut = '$apiPrefix/attendance/clock-out';
+  // 출퇴근 - 2단계 호출 (v2 리팩토링)
+  // init: 어떤 method 데이터를 모아야 하는지 안내
+  // submit: 수집된 verification_data 일괄 검증 + 등록
+  static const String clockInInit = '$apiPrefix/attendance/clock-in/init';
+  static const String clockInSubmit = '$apiPrefix/attendance/clock-in/submit';
+  static const String clockOutInit = '$apiPrefix/attendance/clock-out/init';
+  static const String clockOutSubmit = '$apiPrefix/attendance/clock-out/submit';
+
+  // 출퇴근 조회
   static const String todayStatus = '$apiPrefix/attendance/today';
   static const String history = '$apiPrefix/attendance/history';
-
-  // 근무지 설정 (앱용)
-  static const String workplaceConfig = '$apiPrefix/workplace/config';
 
   // 사용자
   static const String users = '$apiPrefix/users';

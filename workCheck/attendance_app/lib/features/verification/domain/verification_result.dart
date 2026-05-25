@@ -10,7 +10,7 @@ part 'verification_result.g.dart';
 /// freezed로 생성된 sealed class이며, 성공/실패 여부와
 /// 인증에서 수집된 데이터(좌표, QR 데이터 등)를 함께 포함한다.
 @freezed
-class VerificationResult with _$VerificationResult {
+abstract class VerificationResult with _$VerificationResult {
   const factory VerificationResult({
     /// 어떤 방식으로 인증했는지 (gps, qr, bluetooth 등)
     required VerificationMethod method,

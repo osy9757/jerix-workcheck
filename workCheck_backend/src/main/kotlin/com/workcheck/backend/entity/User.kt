@@ -3,7 +3,7 @@ package com.workcheck.backend.entity
 import jakarta.persistence.*
 import java.time.OffsetDateTime
 
-// 직원(사용자) 엔티티 - 회사 내 사번으로 고유 식별
+// 직원(사용자) 엔티티 - 회사 내 사번으로 고유 식별 (v2: workplace 관계 제거)
 @Entity
 @Table(
     name = "users",
@@ -17,11 +17,6 @@ class User(
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "company_id", nullable = false)
     val company: Company,
-
-    // 소속 근무지 (nullable)
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "workplace_id")
-    var workplace: Workplace? = null,
 
     @Column(name = "employee_id", nullable = false, length = 50)
     val employeeId: String,

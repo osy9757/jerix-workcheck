@@ -46,13 +46,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   String _currentAddress = '위치 확인 중...';
 
   /// 출근지 주소 (서버 설정)
-  String _workplaceAddress = '-';
+  String _attendanceAddress = '-';
 
   /// 현재 GPS 좌표
   LatLng? _currentLatLng;
 
   /// 지도에 표시할 출근지 좌표 (GPS 인증 설정이 있을 때만 사용)
-  LatLng? _workplaceLatLng;
+  LatLng? _attendanceLatLng;
 
   /// 현재 지도에서 GPS 인증 위치를 표시해야 하는지 여부
   bool _usesGpsOnMap = false;
@@ -149,38 +149,35 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       }
     }
 
-    // 출근지 정보: BLoC의 workplaceConfig에서 가져오기
-    _loadWorkplaceInfo();
+    // 출근지 정보: init 응답(`bloc.lastInit`)의 gps.targets 좌표/반경에서 가져오기
+    _loadAttendanceLocation();
   }
 
-  /// 출근지 주소 및 좌표를 workplaceConfig에서 로드
-  void _loadWorkplaceInfo() {
+  /// 출근지 주소 및 좌표를 init 응답(`gps.targets[]`)에서 로드
+  ///
+  /// v2 리팩토링: workplace 개념 폐기. 출근지 정보는 출퇴근 init 응답의
+  /// gps 설정(`targets[].lat/lng/radius_m`)에서 가져온다.
+  void _loadAttendanceLocation() {
     final bloc = context.read<AttendanceBloc>();
-    final config = bloc.workplaceConfig;
-    if (config == null) return;
+    final init = bloc.lastInit;
+    if (init == null) return;
 
+    // GPS가 required_methods에 포함된 경우에만 지도에 출근지 마커/반경을 표시
     final serverEnabledMethods = bloc.state.serverEnabledMethods;
-    final mapMethods = serverEnabledMethods.isNotEmpty
-        ? serverEnabledMethods
-        : config.enabledMethods;
-    final usesGps = mapMethods.any(
-      (method) => method.components.contains(VerificationMethod.gps),
-    );
+    final usesGps = serverEnabledMethods.contains(VerificationMethod.gps) ||
+        init.requiredMethods.contains(VerificationMethod.gps);
     final gpsTarget = usesGps ? _resolveGpsMapTarget() : null;
 
     _usesGpsOnMap = gpsTarget != null;
-    _workplaceLatLng = gpsTarget?.position;
+    _attendanceLatLng = gpsTarget?.position;
     _gpsRadiusMeters = gpsTarget?.radiusMeters;
 
-    final address = gpsTarget?.address;
-    if (address != null && address.isNotEmpty) {
-      if (mounted) setState(() => _workplaceAddress = address);
-    } else if (!_usesGpsOnMap && mounted) {
-      setState(() => _workplaceAddress = '-');
+    if (!_usesGpsOnMap && mounted) {
+      setState(() => _attendanceAddress = '-');
     }
 
     if (gpsTarget != null) {
-      _reverseGeocodeWorkplace(
+      _reverseGeocodeAttendance(
         gpsTarget.position.latitude,
         gpsTarget.position.longitude,
       );
@@ -188,70 +185,49 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     _syncMapIfReady();
   }
 
-  /// 활성 인증 설정에서 지도에 표시할 GPS 타겟을 추출
+  /// init 응답의 gps 설정에서 지도에 표시할 첫 GPS 타겟을 추출
+  ///
+  /// 새 contract 스키마: `gps.targets[].lat/lng/radius_m` (snake_case)
   _GpsMapTarget? _resolveGpsMapTarget() {
-    final config = context.read<AttendanceBloc>().workplaceConfig;
-    if (config == null) return null;
+    final init = context.read<AttendanceBloc>().lastInit;
+    if (init == null) return null;
 
-    const gpsMethodOrder = [
-      VerificationMethod.gps,
-      VerificationMethod.gpsQr,
-      VerificationMethod.nfcGps,
-      VerificationMethod.beaconGps,
-    ];
+    final gpsConfig = init.getConfig(VerificationMethod.gps);
+    if (gpsConfig == null) return null;
 
-    for (final method in gpsMethodOrder) {
-      final methodConfig = config.getConfig(method);
-      if (methodConfig == null) continue;
+    final rawTargets = gpsConfig['targets'];
+    if (rawTargets is! List) return null;
 
-      final gpsKeys = switch (method) {
-        VerificationMethod.nfcGps || VerificationMethod.beaconGps =>
-          ['gps_targets', 'targets'],
-        _ => ['targets', 'gps_targets'],
-      };
-
-      final target = _targetFromConfig(methodConfig, gpsKeys);
-      if (target != null) return target;
+    for (final rawTarget in rawTargets) {
+      if (rawTarget is Map) {
+        final target = _targetFromMap(Map<String, dynamic>.from(rawTarget));
+        if (target != null) return target;
+      }
     }
-
     return null;
   }
 
-  _GpsMapTarget? _targetFromConfig(
-    Map<String, dynamic> config,
-    List<String> targetKeys,
-  ) {
-    for (final key in targetKeys) {
-      final rawTargets = config[key];
-      if (rawTargets is! List) continue;
-
-      for (final rawTarget in rawTargets) {
-        if (rawTarget is Map) {
-          final target = _targetFromMap(Map<String, dynamic>.from(rawTarget));
-          if (target != null) return target;
-        }
-      }
-    }
-
-    return _targetFromMap(config);
-  }
-
   _GpsMapTarget? _targetFromMap(Map<String, dynamic> raw) {
-    final lat = (raw['latitude'] as num?)?.toDouble();
-    final lng = (raw['longitude'] as num?)?.toDouble();
+    // 새 contract: lat/lng (구 latitude/longitude 호환도 유지)
+    final lat = (raw['lat'] as num?)?.toDouble() ??
+        (raw['latitude'] as num?)?.toDouble();
+    final lng = (raw['lng'] as num?)?.toDouble() ??
+        (raw['longitude'] as num?)?.toDouble();
     if (lat == null || lng == null) return null;
 
     return _GpsMapTarget(
       position: LatLng(lat, lng),
-      radiusMeters: (raw['radius_meters'] as num?)?.toDouble(),
+      // 새 contract: radius_m (구 radius_meters 호환도 유지)
+      radiusMeters: (raw['radius_m'] as num?)?.toDouble() ??
+          (raw['radius_meters'] as num?)?.toDouble(),
       address: raw['address'] as String?,
     );
   }
 
   /// 출근지 좌표 역지오코딩
-  Future<void> _reverseGeocodeWorkplace(double lat, double lng) async {
+  Future<void> _reverseGeocodeAttendance(double lat, double lng) async {
     // 이미 주소가 설정되어 있으면 스킵
-    if (_workplaceAddress != '-') return;
+    if (_attendanceAddress != '-') return;
     try {
       final placemarks = await placemarkFromCoordinates(lat, lng);
       if (placemarks.isNotEmpty && mounted) {
@@ -260,7 +236,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             .where((s) => s != null && s.isNotEmpty)
             .join(' ');
         setState(() {
-          _workplaceAddress = address.isNotEmpty ? address : '-';
+          _attendanceAddress = address.isNotEmpty ? address : '-';
         });
       }
     } catch (e) {
@@ -271,14 +247,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   /// GPS 허용 반경 파란색 원 추가 (KakaoMap ShapeLayer)
   Future<void> _addRadiusCircle(KakaoMapController controller) async {
     final radius = _gpsRadiusMeters;
-    final workplace = _workplaceLatLng;
-    if (!_usesGpsOnMap || radius == null || radius <= 0 || workplace == null) {
+    final attendanceLatLng = _attendanceLatLng;
+    if (!_usesGpsOnMap || radius == null || radius <= 0 || attendanceLatLng == null) {
       await _removeRadiusCircle();
       return;
     }
     // 이미 추가된 경우 스킵
     if (_radiusPolygon != null) {
-      await _radiusPolygon!.changePosition(CirclePoint(radius, workplace));
+      await _radiusPolygon!.changePosition(CirclePoint(radius, attendanceLatLng));
       return;
     }
 
@@ -290,7 +266,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         strokeColor: Colors.blue.withValues(alpha: 0.4),
       );
       _radiusPolygon = await shapeLayer.addPolygonShape(
-        CirclePoint(radius, workplace),
+        CirclePoint(radius, attendanceLatLng),
         style,
         id: 'gps_radius',
       );
@@ -343,8 +319,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await _upsertCurrentLocationPoi(controller, currentLocation);
       if (token != _mapSyncToken) return;
 
-      final workplace = _usesGpsOnMap ? _workplaceLatLng : null;
-      if (workplace == null) {
+      final attendanceLatLng = _usesGpsOnMap ? _attendanceLatLng : null;
+      if (attendanceLatLng == null) {
         await _removeDestinationPoi();
         await _removeRadiusCircle();
         await controller.moveCamera(
@@ -357,11 +333,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         return;
       }
 
-      await _upsertDestinationPoi(controller, workplace);
+      await _upsertDestinationPoi(controller, attendanceLatLng);
       if (token != _mapSyncToken) return;
 
       await _addRadiusCircle(controller);
-      await _fitMapToMarkers(controller, currentLocation, workplace);
+      await _fitMapToMarkers(controller, currentLocation, attendanceLatLng);
       await _updateMarkerScaleForCurrentZoom(controller);
     } catch (e) {
       debugPrint('[KakaoMap] 지도 동기화 오류: $e');
@@ -466,12 +442,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   Future<void> _fitMapToMarkers(
     KakaoMapController controller,
     LatLng currentLocation,
-    LatLng workplace,
+    LatLng attendanceLatLng,
   ) async {
     final padding = _markerSafePadding();
     await controller.moveCamera(
       CameraUpdate.fitMapPoints(
-        [workplace, currentLocation],
+        [attendanceLatLng, currentLocation],
         padding: padding,
       ),
     );
@@ -479,13 +455,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     // fitMapPoints는 좌표 기준이므로 마커 이미지 외곽이 잘리지 않도록 한 번 더 검증한다.
     final hasSafeBounds = await _markersFitInsideViewport(
       controller,
-      [workplace, currentLocation],
+      [attendanceLatLng, currentLocation],
       padding,
     );
     if (!hasSafeBounds) {
       await controller.moveCamera(
         CameraUpdate.fitMapPoints(
-          [workplace, currentLocation],
+          [attendanceLatLng, currentLocation],
           padding: padding + 36,
         ),
       );
@@ -647,7 +623,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     switch (state.uiState) {
       case AttendanceUiState.loaded:
         // 초기 로드 완료 시 출근지 정보 갱신
-        _loadWorkplaceInfo();
+        _loadAttendanceLocation();
         break;
       case AttendanceUiState.success:
         // 출퇴근 등록 성공 다이얼로그
@@ -682,6 +658,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             case 'BEACON_NOT_DETECTED':
             case 'BEACON_RSSI_TOO_WEAK':
               BeaconUnavailableDialog.show(context);
+              break;
+            case 'QR_VERIFICATION_FAILED':
+              // QR 코드 불일치/누락 → 일반 출근 불가 다이얼로그 (QR 전용 위젯 없음 → 가장 가까운 ClockInUnavailableDialog 재사용)
+              ClockInUnavailableDialog.show(context);
               break;
             case 'GPS_SPOOFED':
               // GPS 조작(가상 위치) 감지 → 경고 다이얼로그
@@ -843,7 +823,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                           ),
                           SizedBox(height: 2.h),
                           Text(
-                            _workplaceAddress,
+                            _attendanceAddress,
                             style: TextStyle(
                               fontFamily: 'Pretendard',
                               fontWeight: FontWeight.w600,
@@ -965,12 +945,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       },
     };
 
-    // 활성화된 단일 방법 집합 (복합 인증에 포함된 것도 포함)
-    final enabledSingle = <VerificationMethod>{};
-    for (final m in methods) {
-      // components: 복합이면 구성 요소, 단일이면 자기 자신
-      enabledSingle.addAll(m.components);
-    }
+    // v2 리팩토링: 합성 인증 제거. 모든 method가 단일이므로 그대로 사용.
+    final enabledSingle = methods.toSet();
 
     return Row(
       children: iconMap.entries.map((entry) {
@@ -1085,7 +1061,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                 child: KakaoMap(
                   option: KakaoMapOption(
                     position: _currentLatLng ??
-                        _workplaceLatLng ??
+                        _attendanceLatLng ??
                         _fallbackMapPosition,
                     zoomLevel: _defaultMapZoomLevel,
                   ),

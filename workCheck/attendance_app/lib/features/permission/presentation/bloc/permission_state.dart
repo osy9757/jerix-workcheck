@@ -2,7 +2,7 @@ part of 'permission_bloc.dart';
 
 /// 권한 BLoC 상태
 @freezed
-class PermissionState with _$PermissionState {
+abstract class PermissionState with _$PermissionState {
   const factory PermissionState({
     /// 권한 항목 목록
     @Default([]) List<PermissionItem> permissionItems,

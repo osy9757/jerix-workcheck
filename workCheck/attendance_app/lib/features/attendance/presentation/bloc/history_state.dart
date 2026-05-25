@@ -1,7 +1,7 @@
 part of 'history_bloc.dart';
 
 @freezed
-class HistoryState with _$HistoryState {
+abstract class HistoryState with _$HistoryState {
   const factory HistoryState({
     /// 일별 출퇴근 기록 (day -> record)
     @Default({}) Map<int, DailyRecordEntity> records,

@@ -2,7 +2,9 @@ import 'package:dio/dio.dart';
 import 'dart:html' as html;
 import '../models/models.dart';
 
-/// API 통신 서비스
+/// API 통신 서비스 (api_contract v2)
+/// - workplace 관련 메서드 모두 제거
+/// - 유저 단위 method CRUD (getUserMethods / updateUserMethod)
 class ApiService {
   // nginx 프록시를 통해 API 서버로 연결 (/api/ → http://api:8080/api/)
   static const String _baseUrl = '/api/v1';
@@ -46,57 +48,30 @@ class ApiService {
 
   // --- 관리자 로그인 ---
 
+  /// Admin 로그인 (api_contract v2: /auth/admin/login)
   Future<AdminLoginResponse> login(String username, String password) async {
-    final response = await _dio.post('/admin/login', data: {
+    final response = await _dio.post('/auth/admin/login', data: {
       'username': username,
       'password': password,
     });
-    final result = AdminLoginResponse.fromJson(response.data);
+    final result =
+        AdminLoginResponse.fromJson(response.data as Map<String, dynamic>);
     saveToken(result.token);
     return result;
   }
 
-  // --- 인증 방법 관리 ---
+  // --- 출퇴근 기록 (Admin Web) ---
 
-  /// 인증 방법 목록 조회
-  Future<List<VerificationMethod>> getVerificationMethods() async {
-    final response = await _dio.get('/verification/methods');
-    final methods = (response.data['methods'] as List)
-        .map((m) => VerificationMethod.fromJson(m))
-        .toList();
-    return methods;
-  }
-
-  /// 인증 방법 상세 조회
-  Future<VerificationMethod> getVerificationMethod(int id) async {
-    final response = await _dio.get('/verification/methods/$id');
-    return VerificationMethod.fromJson(response.data);
-  }
-
-  /// 인증 방법 수정 (ON/OFF + 설정)
-  Future<VerificationMethod> updateVerificationMethod(
-    int id, {
-    required bool enabled,
-    required Map<String, dynamic> config,
-  }) async {
-    final response = await _dio.put('/verification/methods/$id', data: {
-      'enabled': enabled,
-      'config': config,
-    });
-    return VerificationMethod.fromJson(response.data);
-  }
-
-  // --- 출퇴근 기록 ---
-
-  /// 출퇴근 기록 조회
+  /// 관리자용 출퇴근 기록 조회 (날짜 범위)
   Future<List<AttendanceRecord>> getAttendanceHistory(
       String from, String to) async {
-    final response = await _dio.get('/admin/attendance/records', queryParameters: {
+    final response =
+        await _dio.get('/admin/attendance/records', queryParameters: {
       'from': from,
       'to': to,
     });
     final records = (response.data['records'] as List)
-        .map((r) => AttendanceRecord.fromJson(r))
+        .map((r) => AttendanceRecord.fromJson(r as Map<String, dynamic>))
         .toList();
     return records;
   }
@@ -104,130 +79,64 @@ class ApiService {
   // --- 직원 관리 ---
 
   /// 직원 목록 조회
+  /// 응답: { users: [...], total: N }
   Future<List<Employee>> getUsers() async {
     final response = await _dio.get('/users');
     final users = (response.data['users'] as List)
-        .map((u) => Employee.fromJson(u))
+        .map((u) => Employee.fromJson(u as Map<String, dynamic>))
         .toList();
     return users;
   }
 
-  /// 직원 등록
+  /// 직원 등록 (백엔드가 5 method row 자동 생성)
   Future<Employee> createUser({
     required String companyCode,
     required String employeeId,
     required String name,
     required String password,
+    String? email,
+    String? department,
   }) async {
     final response = await _dio.post('/users', data: {
       'company_code': companyCode,
       'employee_id': employeeId,
       'name': name,
       'password': password,
+      if (email != null) 'email': email,
+      if (department != null) 'department': department,
     });
-    return Employee.fromJson(response.data);
+    return Employee.fromJson(response.data as Map<String, dynamic>);
   }
 
-  // --- 근무지 관리 ---
+  // --- 유저 인증 method (5-enum) ---
 
-  /// 근무지 목록 조회
-  Future<List<Workplace>> getWorkplaces() async {
-    final response = await _dio.get('/workplaces');
-    final list = (response.data['workplaces'] as List)
-        .map((w) => Workplace.fromJson(w))
-        .toList();
-    return list;
-  }
-
-  /// 근무지 생성
-  Future<Workplace> createWorkplace(String name, String? address, {double? latitude, double? longitude}) async {
-    final response = await _dio.post('/workplaces', data: {
-      'name': name,
-      'address': address,
-      if (latitude != null) 'latitude': latitude,
-      if (longitude != null) 'longitude': longitude,
-    });
-    return Workplace.fromJson(response.data);
-  }
-
-  /// 근무지 수정
-  Future<Workplace> updateWorkplace(int id, String name, String? address, {double? latitude, double? longitude}) async {
-    final response = await _dio.put('/workplaces/$id', data: {
-      'name': name,
-      'address': address,
-      'latitude': latitude,
-      'longitude': longitude,
-    });
-    return Workplace.fromJson(response.data);
-  }
-
-  /// 근무지 삭제
-  Future<void> deleteWorkplace(int id) async {
-    await _dio.delete('/workplaces/$id');
-  }
-
-  // --- 근무지별 인증 방법 ---
-
-  /// 근무지의 인증 방법 목록 조회
-  Future<List<VerificationMethod>> getWorkplaceVerificationMethods(int workplaceId) async {
-    final response = await _dio.get('/workplaces/$workplaceId/verification-methods');
+  /// 유저의 5개 method 전체 조회
+  /// 응답: { user_id, methods: [{ method_type, is_enabled, config_data }] }
+  Future<List<VerificationMethod>> getUserMethods(int userId) async {
+    final response = await _dio.get('/users/$userId/methods');
     final methods = (response.data['methods'] as List)
-        .map((m) => VerificationMethod.fromJson(m))
+        .map((m) => VerificationMethod.fromJson(m as Map<String, dynamic>))
         .toList();
     return methods;
   }
 
-  /// 근무지 인증 방법 수정
-  Future<VerificationMethod> updateWorkplaceVerificationMethod(
-    int workplaceId,
-    int methodId, {
-    required bool enabled,
-    required Map<String, dynamic> config,
-  }) async {
-    final response = await _dio.put(
-      '/workplaces/$workplaceId/verification-methods/$methodId',
-      data: {'enabled': enabled, 'config': config},
-    );
-    return VerificationMethod.fromJson(response.data);
-  }
-
-  // --- 유저별 인증 오버라이드 ---
-
-  /// 유저의 실제 인증 방법 조회 (근무지 기본 + 오버라이드 머지)
-  Future<List<VerificationMethod>> getUserVerificationMethods(int userId) async {
-    final response = await _dio.get('/users/$userId/verification-methods');
-    final methods = (response.data['methods'] as List)
-        .map((m) => VerificationMethod.fromJson(m))
-        .toList();
-    return methods;
-  }
-
-  /// 유저 인증 오버라이드 설정
-  Future<void> updateUserVerificationOverride(
+  /// 유저 단일 method 갱신(upsert)
+  /// - methodType: 'GPS' | 'WIFI' | 'NFC' | 'BEACON' | 'QR' (대소문자 무관)
+  /// - BEACON 저장 시 서버가 distance_m+tx_power → rssi_threshold 자동 계산해 응답 포함
+  Future<VerificationMethod> updateUserMethod(
     int userId, {
     required String methodType,
     required bool isEnabled,
-    required Map<String, dynamic> config,
+    required Map<String, dynamic> configData,
   }) async {
-    await _dio.put('/users/$userId/verification-overrides', data: {
-      'method_type': methodType,
-      'is_enabled': isEnabled,
-      'config_data': config,
-    });
-  }
-
-  /// 유저 오버라이드 제거 (근무지 기본으로 복귀)
-  Future<void> deleteUserVerificationOverride(int userId, String methodType) async {
-    await _dio.delete('/users/$userId/verification-overrides/$methodType');
-  }
-
-  // --- 유저 근무지 배정 ---
-
-  /// 유저를 근무지에 배정
-  Future<void> assignUserWorkplace(int userId, int workplaceId) async {
-    await _dio.put('/users/$userId/workplace', data: {
-      'workplace_id': workplaceId,
-    });
+    final response = await _dio.put(
+      '/users/$userId/methods/$methodType',
+      data: {
+        'is_enabled': isEnabled,
+        'config_data': configData,
+      },
+    );
+    return VerificationMethod.fromJson(response.data as Map<String, dynamic>);
   }
 
   // --- 인증 프리셋 (verification-presets) ---
@@ -238,7 +147,8 @@ class ApiService {
     final response = await _dio.get(
       '/verification-presets',
       queryParameters: {
-        if (methodType != null && methodType.isNotEmpty) 'methodType': methodType,
+        if (methodType != null && methodType.isNotEmpty)
+          'methodType': methodType,
       },
     );
     // 응답은 배열 (래퍼 없음)

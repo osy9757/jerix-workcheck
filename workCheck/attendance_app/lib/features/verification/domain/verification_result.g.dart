@@ -6,17 +6,15 @@ part of 'verification_result.dart';
 // JsonSerializableGenerator
 // **************************************************************************
 
-_$VerificationResultImpl _$$VerificationResultImplFromJson(
-        Map<String, dynamic> json) =>
-    _$VerificationResultImpl(
+_VerificationResult _$VerificationResultFromJson(Map<String, dynamic> json) =>
+    _VerificationResult(
       method: $enumDecode(_$VerificationMethodEnumMap, json['method']),
       isVerified: json['isVerified'] as bool,
       data: json['data'] as Map<String, dynamic>,
       errorMessage: json['errorMessage'] as String?,
     );
 
-Map<String, dynamic> _$$VerificationResultImplToJson(
-        _$VerificationResultImpl instance) =>
+Map<String, dynamic> _$VerificationResultToJson(_VerificationResult instance) =>
     <String, dynamic>{
       'method': _$VerificationMethodEnumMap[instance.method]!,
       'isVerified': instance.isVerified,
@@ -30,8 +28,4 @@ const _$VerificationMethodEnumMap = {
   VerificationMethod.nfc: 'nfc',
   VerificationMethod.bluetooth: 'bluetooth',
   VerificationMethod.wifi: 'wifi',
-  VerificationMethod.gpsQr: 'gpsQr',
-  VerificationMethod.wifiQr: 'wifiQr',
-  VerificationMethod.nfcGps: 'nfcGps',
-  VerificationMethod.beaconGps: 'beaconGps',
 };

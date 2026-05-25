@@ -7,21 +7,33 @@ import '../../models/attendance_model.dart';
 part 'attendance_remote_datasource.g.dart';
 
 /// 출퇴근 원격 데이터소스 (Retrofit REST API)
+///
+/// v2 리팩토링: 출퇴근은 2단계 호출 구조다.
+/// 1) init  → 어떤 method 데이터를 수집해야 하는지 + method별 서버 설정값 안내
+/// 2) submit → 수집한 verification_data 일괄 검증 후 출퇴근 기록 생성
 @RestApi()
 @lazySingleton
 abstract class AttendanceRemoteDataSource {
   @factoryMethod
   factory AttendanceRemoteDataSource(Dio dio) = _AttendanceRemoteDataSource;
 
-  /// 출근 등록 API
-  @POST('/api/v1/attendance/clock-in')
-  Future<AttendanceModel> clockIn(
+  /// 출근 1차: required_methods + configs 안내
+  @POST('/api/v1/attendance/clock-in/init')
+  Future<AttendanceInitModel> clockInInit();
+
+  /// 출근 2차: 수집된 verification_data 일괄 제출 → AND 검증 후 등록
+  @POST('/api/v1/attendance/clock-in/submit')
+  Future<AttendanceModel> clockInSubmit(
     @Body() Map<String, dynamic> body,
   );
 
-  /// 퇴근 등록 API
-  @POST('/api/v1/attendance/clock-out')
-  Future<AttendanceModel> clockOut(
+  /// 퇴근 1차: required_methods + configs 안내
+  @POST('/api/v1/attendance/clock-out/init')
+  Future<AttendanceInitModel> clockOutInit();
+
+  /// 퇴근 2차: 수집된 verification_data 일괄 제출 → AND 검증 후 등록
+  @POST('/api/v1/attendance/clock-out/submit')
+  Future<AttendanceModel> clockOutSubmit(
     @Body() Map<String, dynamic> body,
   );
 

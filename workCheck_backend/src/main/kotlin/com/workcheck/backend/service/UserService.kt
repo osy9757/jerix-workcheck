@@ -1,28 +1,29 @@
 package com.workcheck.backend.service
 
 import com.workcheck.backend.dto.request.CreateUserRequest
-import com.workcheck.backend.dto.request.UpdateUserVerificationRequest
+import com.workcheck.backend.dto.request.UpdateUserMethodRequest
 import com.workcheck.backend.dto.response.UserListResponse
+import com.workcheck.backend.dto.response.UserMethodResponse
+import com.workcheck.backend.dto.response.UserMethodsResponse
 import com.workcheck.backend.dto.response.UserResponse
 import com.workcheck.backend.entity.MethodType
 import com.workcheck.backend.entity.User
-import com.workcheck.backend.entity.UserVerificationOverride
+import com.workcheck.backend.entity.UserVerificationMethod
 import com.workcheck.backend.repository.CompanyRepository
 import com.workcheck.backend.repository.UserRepository
-import com.workcheck.backend.repository.UserVerificationOverrideRepository
-import com.workcheck.backend.repository.WorkplaceRepository
+import com.workcheck.backend.repository.UserVerificationMethodRepository
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
+import kotlin.math.log10
 
-// 직원 등록, 근무지 배정, 인증 방법 오버라이드 관리 서비스
+// 직원 등록 + 인증 방법 관리 서비스 (v2: workplace 개념 제거, 5개 단위 프리셋 토글 + AND 결합)
 @Service
 class UserService(
     private val userRepository: UserRepository,
     private val companyRepository: CompanyRepository,
-    private val workplaceRepository: WorkplaceRepository,
-    private val userVerificationOverrideRepository: UserVerificationOverrideRepository,
+    private val uvmRepository: UserVerificationMethodRepository,
     private val passwordEncoder: PasswordEncoder
 ) {
     // 직원 목록
@@ -36,7 +37,7 @@ class UserService(
         )
     }
 
-    // 직원 등록
+    // 직원 등록 (v2: 등록 시 5개 method row 자동 생성, 모두 disabled)
     @Transactional
     fun createUser(request: CreateUserRequest): UserResponse {
         val company = companyRepository.findByCode(request.companyCode)
@@ -54,99 +55,108 @@ class UserService(
             passwordHash = passwordEncoder.encode(request.password)
         )
         val saved = userRepository.save(user)
-        return toResponse(saved, company.code)
-    }
 
-    // 유저 근무지 배정
-    @Transactional
-    fun assignWorkplace(userId: Long, workplaceId: Long): UserResponse {
-        val user = userRepository.findById(userId)
-            .orElseThrow { IllegalArgumentException("사용자를 찾을 수 없습니다: $userId") }
-        val workplace = workplaceRepository.findById(workplaceId)
-            .orElseThrow { IllegalArgumentException("근무지를 찾을 수 없습니다: $workplaceId") }
-
-        user.workplace = workplace
-        val saved = userRepository.save(user)
-        return toResponse(saved, saved.company.code)
-    }
-
-    // 유저 인증 오버라이드 설정
-    // 단일 활성 제약: enabled=true 요청 시 같은 유저의 다른 모든 method_type 을 isEnabled=false 로 자동 upsert
-    @Transactional
-    fun setUserVerificationOverride(userId: Long, request: UpdateUserVerificationRequest) {
-        val user = userRepository.findById(userId)
-            .orElseThrow { IllegalArgumentException("사용자를 찾을 수 없습니다: $userId") }
-
-        val methodType = MethodType.valueOf(request.methodType)
-
-        // QR 은 프리셋 카탈로그 전용 - 유저 오버라이드로 사용 불가
-        if (methodType == MethodType.QR) {
-            throw IllegalArgumentException("QR 은 프리셋 카탈로그 전용 타입입니다")
-        }
-
-        // 단일 활성 제약: 활성화 요청이면 같은 유저의 다른 method_type 을 모두 비활성으로 강제
-        if (request.isEnabled) {
-            val now = OffsetDateTime.now()
-            MethodType.values()
-                .filter { it != methodType && it != MethodType.QR }
-                .forEach { other ->
-                    val otherOverride = userVerificationOverrideRepository.findByUserIdAndMethodType(userId, other)
-                    if (otherOverride != null) {
-                        // 이미 비활성화된 항목은 건드리지 않음
-                        if (otherOverride.isEnabled) {
-                            otherOverride.isEnabled = false
-                            otherOverride.updatedAt = now
-                            userVerificationOverrideRepository.save(otherOverride)
-                        }
-                    } else {
-                        // 오버라이드가 없으면 비활성 상태로 신규 upsert
-                        userVerificationOverrideRepository.save(
-                            UserVerificationOverride(
-                                user = user,
-                                methodType = other,
-                                isEnabled = false,
-                                configData = emptyMap()
-                            )
-                        )
-                    }
-                }
-        }
-
-        // 기존 오버라이드가 있으면 수정, 없으면 생성 (본 메서드 타입)
-        val existing = userVerificationOverrideRepository.findByUserIdAndMethodType(userId, methodType)
-        if (existing != null) {
-            existing.isEnabled = request.isEnabled
-            existing.configData = request.configData
-            existing.updatedAt = OffsetDateTime.now()
-            userVerificationOverrideRepository.save(existing)
-        } else {
-            userVerificationOverrideRepository.save(
-                UserVerificationOverride(
-                    user = user,
-                    methodType = methodType,
-                    isEnabled = request.isEnabled,
-                    configData = request.configData
+        // 신규 직원에게 5개 method row 자동 생성 (모두 disabled + 빈 config)
+        MethodType.values().forEach { type ->
+            uvmRepository.save(
+                UserVerificationMethod(
+                    user = saved,
+                    methodType = type,
+                    isEnabled = false,
+                    configData = emptyMap()
                 )
             )
         }
+
+        return toResponse(saved, company.code)
     }
 
-    // 유저 인증 오버라이드 삭제 (근무지 기본으로 복귀)
+    // 유저의 5개 method 전체 조회 (Admin Web 인증 페이지용)
+    fun getUserMethods(userId: Long): UserMethodsResponse {
+        val user = userRepository.findById(userId)
+            .orElseThrow { IllegalArgumentException("사용자를 찾을 수 없습니다: $userId") }
+
+        val existing = uvmRepository.findAllByUserId(userId).associateBy { it.methodType }
+        // 누락된 method 가 있으면 disabled+빈 config 로 채워서 반환 (오래된 유저 대응)
+        val methods = MethodType.values().map { type ->
+            val uvm = existing[type]
+            UserMethodResponse(
+                methodType = type.name,
+                isEnabled = uvm?.isEnabled ?: false,
+                configData = uvm?.configData ?: emptyMap()
+            )
+        }
+        return UserMethodsResponse(userId = user.id, methods = methods)
+    }
+
+    // 유저 method 단건 upsert (Admin Web 토글/설정 저장용)
+    // 비콘 등록 시 distance_m + tx_power 가 들어오면 서버가 rssi_threshold 자동 계산하여 함께 저장
     @Transactional
-    fun deleteUserVerificationOverride(userId: Long, methodType: String) {
-        val type = MethodType.valueOf(methodType)
-        userVerificationOverrideRepository.deleteByUserIdAndMethodType(userId, type)
+    fun updateUserMethod(userId: Long, methodType: String, request: UpdateUserMethodRequest): UserMethodResponse {
+        val user = userRepository.findById(userId)
+            .orElseThrow { IllegalArgumentException("사용자를 찾을 수 없습니다: $userId") }
+        val type = parseMethodType(methodType)
+
+        val normalizedConfig = normalizeConfigData(type, request.configData)
+
+        val existing = uvmRepository.findByUserIdAndMethodType(userId, type)
+        val saved = if (existing != null) {
+            existing.isEnabled = request.isEnabled
+            existing.configData = normalizedConfig
+            existing.updatedAt = OffsetDateTime.now()
+            uvmRepository.save(existing)
+        } else {
+            uvmRepository.save(
+                UserVerificationMethod(
+                    user = user,
+                    methodType = type,
+                    isEnabled = request.isEnabled,
+                    configData = normalizedConfig
+                )
+            )
+        }
+        return UserMethodResponse(
+            methodType = saved.methodType.name,
+            isEnabled = saved.isEnabled,
+            configData = saved.configData
+        )
     }
 
-    // User 엔티티를 API 응답 DTO로 변환
+    // 비콘 거리(m)+txPower → rssi_threshold 자동 계산 후 targets 보강
+    // 공식: rssi_threshold = txPower - 10 * n * log10(distance_m) (n=2, 일반 환경)
+    private fun normalizeConfigData(type: MethodType, configData: Map<String, Any>): Map<String, Any> {
+        if (type != MethodType.BEACON) return configData
+
+        @Suppress("UNCHECKED_CAST")
+        val targets = configData["targets"] as? List<Map<String, Any>> ?: return configData
+        val normalizedTargets = targets.map { target ->
+            val distanceM = (target["distance_m"] as? Number)?.toDouble()
+            val txPower = (target["tx_power"] as? Number)?.toInt()
+            if (distanceM != null && txPower != null && distanceM > 0) {
+                val rssiThreshold = (txPower - 20 * log10(distanceM)).toInt()
+                target + mapOf("rssi_threshold" to rssiThreshold)
+            } else {
+                target
+            }
+        }
+        return configData + mapOf("targets" to normalizedTargets)
+    }
+
+    // methodType 문자열 (대소문자 무관) → enum
+    private fun parseMethodType(raw: String): MethodType {
+        return runCatching { MethodType.valueOf(raw.uppercase()) }
+            .getOrElse { throw IllegalArgumentException("알 수 없는 method_type: $raw") }
+    }
+
+    // User 엔티티를 API 응답 DTO로 변환 (v2: workplace 필드 제거)
     private fun toResponse(user: User, companyCode: String): UserResponse {
         return UserResponse(
             id = user.id,
             companyCode = companyCode,
             employeeId = user.employeeId,
             name = user.name,
-            workplaceId = user.workplace?.id,
-            workplaceName = user.workplace?.name,
+            email = user.email,
+            department = user.department,
             createdAt = user.createdAt
         )
     }

@@ -36,7 +36,4 @@ interface AttendanceRecordRepository : JpaRepository<AttendanceRecord, Long> {
         start: OffsetDateTime,
         end: OffsetDateTime
     ): List<AttendanceRecord>
-
-    // 특정 인증 방법 ID 목록 중 하나라도 참조하는 기록이 있는지 확인
-    fun existsByVerificationMethodIdIn(verificationMethodIds: List<Long>): Boolean
 }

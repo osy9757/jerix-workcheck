@@ -7,7 +7,7 @@ import org.hibernate.annotations.Type
 import org.hibernate.type.SqlTypes
 import java.time.OffsetDateTime
 
-// 출퇴근 기록 엔티티
+// 출퇴근 기록 엔티티 (v2: method_type VARCHAR 로 단순화. AND 결합 시점에는 대표 method_type 1개를 저장)
 @Entity
 @Table(name = "attendance_records")
 class AttendanceRecord(
@@ -29,9 +29,10 @@ class AttendanceRecord(
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     var status: AttendanceStatus = AttendanceStatus.PENDING,
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "verification_method_id", nullable = false)
-    val verificationMethod: VerificationMethod,
+    // 인증에 사용된 대표 method (AND 결합 시 활성 method 중 첫 번째)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "method_type", nullable = false, length = 16)
+    val methodType: MethodType,
 
     @Type(JsonBinaryType::class)
     @Column(name = "verification_data", nullable = false, columnDefinition = "jsonb")

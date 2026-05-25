@@ -41,11 +41,9 @@ class AuthService(
         // 5. JWT 토큰 생성
         val token = jwtUtil.generateUserToken(user.id, user.employeeId)
 
-        // 6. 활성 인증 방법 조회 (근무지 기본값 + 유저 오버라이드 머지)
-        val enabledMethods = verificationService.getUserVerificationMethods(user.id)
-            .methods
-            .filter { it.enabled }
-            .map { it.methodType }
+        // 6. 활성 인증 방법 조회 (v2: user_verification_methods 의 is_enabled=TRUE 만)
+        val enabledMethods = verificationService.getActiveMethodTypes(user.id)
+            .map { it.name.lowercase() }  // API 응답은 소문자 키 (gps,wifi,nfc,beacon,qr)
 
         return AppLoginResponse(
             token = token,
@@ -53,8 +51,7 @@ class AuthService(
                 id = user.id,
                 name = user.name,
                 employeeId = user.employeeId,
-                department = user.department,
-                workplaceId = user.workplace?.id
+                department = user.department
             ),
             enabledMethods = enabledMethods
         )

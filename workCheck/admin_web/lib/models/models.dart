@@ -1,62 +1,4 @@
-/// 관리자 웹 모델 클래스
-
-/// 근무지 모델
-class Workplace {
-  final int id;
-  final String name;
-  final String? address;
-  final double? latitude;
-  final double? longitude;
-  final String createdAt;
-
-  Workplace({
-    required this.id,
-    required this.name,
-    this.address,
-    this.latitude,
-    this.longitude,
-    required this.createdAt,
-  });
-
-  /// JSON으로부터 근무지 객체 생성
-  factory Workplace.fromJson(Map<String, dynamic> json) {
-    return Workplace(
-      id: json['id'] as int,
-      name: json['name'] as String,
-      address: json['address'] as String?,
-      latitude: (json['latitude'] as num?)?.toDouble(),
-      longitude: (json['longitude'] as num?)?.toDouble(),
-      createdAt: json['created_at'] as String? ?? '',
-    );
-  }
-}
-
-/// 유저별 인증 오버라이드 설정 모델
-class UserVerificationOverride {
-  final int id;
-  final int userId;
-  final String methodType;
-  final bool isEnabled;
-  final Map<String, dynamic> config;
-
-  UserVerificationOverride({
-    required this.id,
-    required this.userId,
-    required this.methodType,
-    required this.isEnabled,
-    required this.config,
-  });
-
-  factory UserVerificationOverride.fromJson(Map<String, dynamic> json) {
-    return UserVerificationOverride(
-      id: json['id'] as int,
-      userId: json['user_id'] as int,
-      methodType: json['method_type'] as String,
-      isEnabled: json['is_enabled'] as bool,
-      config: Map<String, dynamic>.from(json['config'] ?? json['config_data'] ?? {}),
-    );
-  }
-}
+/// 관리자 웹 모델 (api_contract v2 — workplace 폐기, 5-enum)
 
 /// 관리자 로그인 응답 모델 (JWT 토큰 + 관리자 정보)
 class AdminLoginResponse {
@@ -88,29 +30,28 @@ class AdminInfo {
   }
 }
 
-/// 인증 방법 모델 (8가지 인증 타입별 설정 포함)
+/// 인증 방법 모델 (5-enum: GPS / WIFI / NFC / BEACON / QR)
+/// - api_contract v2: workplace 폐기, user 단위 method 5 row
+/// - 응답 키: `method_type`, `is_enabled`, `config_data` (snake_case)
 class VerificationMethod {
-  final int? id;
-  final String methodType;
+  final String methodType; // 'GPS' | 'WIFI' | 'NFC' | 'BEACON' | 'QR'
   final bool enabled;
   final Map<String, dynamic> config;
-  final bool? isOverridden;
 
   VerificationMethod({
-    this.id,
     required this.methodType,
     required this.enabled,
     required this.config,
-    this.isOverridden,
   });
 
   factory VerificationMethod.fromJson(Map<String, dynamic> json) {
     return VerificationMethod(
-      id: json['id'] as int?,
       methodType: json['method_type'] as String,
-      enabled: json['enabled'] as bool,
-      config: Map<String, dynamic>.from((json['config'] ?? json['config_data'] ?? {}) as Map),
-      isOverridden: json['is_overridden'] as bool?,
+      // 호환: is_enabled (v2) 우선, 구버전 enabled 폴백
+      enabled: (json['is_enabled'] ?? json['enabled']) as bool,
+      config: Map<String, dynamic>.from(
+        (json['config_data'] ?? json['config'] ?? {}) as Map,
+      ),
     );
   }
 
@@ -119,40 +60,32 @@ class VerificationMethod {
     switch (methodType) {
       case 'GPS':
         return 'GPS';
-      case 'GPS_QR':
-        return 'GPS + QR';
       case 'WIFI':
         return 'WiFi';
-      case 'WIFI_QR':
-        return 'WiFi + QR';
       case 'NFC':
         return 'NFC';
-      case 'NFC_GPS':
-        return 'NFC + GPS';
       case 'BEACON':
         return 'Beacon';
-      case 'BEACON_GPS':
-        return 'Beacon + GPS';
+      case 'QR':
+        return 'QR';
       default:
         return methodType;
     }
   }
 
-  /// 방법 타입의 아이콘
+  /// 방법 타입의 아이콘 이름 (참고용)
   String get iconName {
     switch (methodType) {
       case 'GPS':
-      case 'GPS_QR':
         return 'location_on';
       case 'WIFI':
-      case 'WIFI_QR':
         return 'wifi';
       case 'NFC':
-      case 'NFC_GPS':
         return 'nfc';
       case 'BEACON':
-      case 'BEACON_GPS':
         return 'bluetooth';
+      case 'QR':
+        return 'qr_code';
       default:
         return 'settings';
     }
@@ -195,31 +128,37 @@ class AttendanceEntry {
   final int id;
   final String type;
   final String timestamp;
-  final String verificationMethod;
+  final String verificationMethod; // 대표 method (소문자: 'gps' 등)
+  final List<String> verifiedMethods; // AND 통과한 모든 method (소문자)
 
   AttendanceEntry({
     required this.id,
     required this.type,
     required this.timestamp,
     required this.verificationMethod,
+    required this.verifiedMethods,
   });
 
   factory AttendanceEntry.fromJson(Map<String, dynamic> json) {
+    final vm = json['verified_methods'];
     return AttendanceEntry(
       id: json['id'] as int,
       type: json['type'] as String,
       timestamp: json['timestamp'] as String,
-      verificationMethod: json['verification_method'] as String,
+      verificationMethod: json['verification_method'] as String? ?? '',
+      verifiedMethods: vm is List
+          ? vm.map((e) => e.toString()).toList()
+          : const [],
     );
   }
 }
 
-/// 인증 프리셋 모델 (NFC/WiFi/GPS/Beacon 등 자주 쓰는 인증값을 이름 붙여 저장)
+/// 인증 프리셋 모델 (NFC/WiFi/GPS/Beacon/QR 자주 쓰는 값 카탈로그)
 /// JSON은 snake_case (백엔드 JacksonConfig SNAKE_CASE 전략)
 class VerificationPreset {
   final int id;
   final String name; // 프리셋 이름
-  final String methodType; // 'NFC' / 'WIFI' / 'GPS' / 'BEACON' 등
+  final String methodType; // 'NFC' / 'WIFI' / 'GPS' / 'BEACON' / 'QR'
   final Map<String, dynamic> configData; // method_type별 설정값 (자유 JSONB)
   final String? memo; // 부가 메모
   final String createdAt; // ISO-8601
@@ -251,24 +190,24 @@ class VerificationPreset {
   }
 }
 
-/// 직원 모델 (회사코드, 사원번호, 근무지 정보 포함)
+/// 직원 모델 (api_contract v2 — workplace 필드 제거, email/department 추가)
 class Employee {
   final int id;
   final String companyCode;
   final String employeeId;
   final String name;
+  final String? email;
+  final String? department;
   final String createdAt;
-  final int? workplaceId;
-  final String? workplaceName;
 
   Employee({
     required this.id,
     required this.companyCode,
     required this.employeeId,
     required this.name,
+    this.email,
+    this.department,
     required this.createdAt,
-    this.workplaceId,
-    this.workplaceName,
   });
 
   factory Employee.fromJson(Map<String, dynamic> json) {
@@ -277,9 +216,9 @@ class Employee {
       companyCode: json['company_code'] as String,
       employeeId: json['employee_id'] as String,
       name: json['name'] as String,
-      createdAt: json['created_at'] as String,
-      workplaceId: json['workplace_id'] as int?,
-      workplaceName: json['workplace_name'] as String?,
+      email: json['email'] as String?,
+      department: json['department'] as String?,
+      createdAt: json['created_at'] as String? ?? '',
     );
   }
 }

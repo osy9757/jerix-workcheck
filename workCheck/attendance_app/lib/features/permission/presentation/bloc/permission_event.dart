@@ -1,7 +1,7 @@
 part of 'permission_bloc.dart';
 
 @freezed
-class PermissionEvent with _$PermissionEvent {
+sealed class PermissionEvent with _$PermissionEvent {
   /// 권한 상태 조회
   const factory PermissionEvent.started() = PermissionStarted;
 

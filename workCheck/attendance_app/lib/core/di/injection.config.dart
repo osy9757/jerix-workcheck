@@ -1,5 +1,5 @@
-// dart format width=80
 // GENERATED CODE - DO NOT MODIFY BY HAND
+// dart format width=80
 
 // **************************************************************************
 // InjectableConfigGenerator
@@ -50,14 +50,6 @@ import '../../features/verification/data/services/qr_service.dart' as _i1069;
 import '../../features/verification/data/services/wifi_service.dart' as _i1036;
 import '../../features/verification/data/verification_manager.dart' as _i630;
 import '../../features/verification/domain/verification_strategy.dart' as _i626;
-import '../../features/workplace/data/datasources/remote/workplace_remote_datasource.dart'
-    as _i127;
-import '../../features/workplace/data/repositories/workplace_repository_impl.dart'
-    as _i334;
-import '../../features/workplace/domain/repositories/workplace_repository.dart'
-    as _i38;
-import '../../features/workplace/domain/usecases/get_workplace_config_usecase.dart'
-    as _i360;
 import '../network/dio_client.dart' as _i667;
 
 extension GetItInjectableX on _i174.GetIt {
@@ -85,6 +77,8 @@ extension GetItInjectableX on _i174.GetIt {
       () => _i1069.QrVerificationService(),
       instanceName: 'qr',
     );
+    gh.lazySingleton<_i606.PermissionRepository>(() =>
+        _i519.PermissionRepositoryImpl(gh<_i397.PermissionLocalDataSource>()));
     gh.lazySingleton<_i626.VerificationStrategy>(
       () => _i1036.WifiVerificationService(),
       instanceName: 'wifi',
@@ -99,14 +93,6 @@ extension GetItInjectableX on _i174.GetIt {
     );
     gh.lazySingleton<_i150.AttendanceRemoteDataSource>(
         () => _i150.AttendanceRemoteDataSource(gh<_i361.Dio>()));
-    gh.lazySingleton<_i127.WorkplaceRemoteDataSource>(
-        () => _i127.WorkplaceRemoteDataSource(gh<_i361.Dio>()));
-    gh.lazySingleton<_i606.PermissionRepository>(() =>
-        _i519.PermissionRepositoryImpl(gh<_i397.PermissionLocalDataSource>()));
-    gh.lazySingleton<_i420.CheckPermissionsUseCase>(
-        () => _i420.CheckPermissionsUseCase(gh<_i606.PermissionRepository>()));
-    gh.lazySingleton<_i509.RequestPermissionsUseCase>(() =>
-        _i509.RequestPermissionsUseCase(gh<_i606.PermissionRepository>()));
     gh.lazySingleton<_i630.VerificationManager>(() => _i630.VerificationManager(
           gps: gh<_i626.VerificationStrategy>(instanceName: 'gps'),
           qr: gh<_i626.VerificationStrategy>(instanceName: 'qr'),
@@ -114,29 +100,31 @@ extension GetItInjectableX on _i174.GetIt {
           bluetooth: gh<_i626.VerificationStrategy>(instanceName: 'bluetooth'),
           wifi: gh<_i626.VerificationStrategy>(instanceName: 'wifi'),
         ));
-    gh.lazySingleton<_i38.WorkplaceRepository>(() =>
-        _i334.WorkplaceRepositoryImpl(gh<_i127.WorkplaceRemoteDataSource>()));
     gh.lazySingleton<_i477.AttendanceRepository>(() =>
         _i719.AttendanceRepositoryImpl(gh<_i150.AttendanceRemoteDataSource>()));
-    gh.factory<_i714.PermissionBloc>(() => _i714.PermissionBloc(
-          gh<_i420.CheckPermissionsUseCase>(),
-          gh<_i509.RequestPermissionsUseCase>(),
-        ));
-    gh.lazySingleton<_i360.GetWorkplaceConfigUseCase>(
-        () => _i360.GetWorkplaceConfigUseCase(gh<_i38.WorkplaceRepository>()));
     gh.lazySingleton<_i1054.GetHistoryUseCase>(
         () => _i1054.GetHistoryUseCase(gh<_i477.AttendanceRepository>()));
     gh.lazySingleton<_i317.GetTodayStatusUseCase>(
         () => _i317.GetTodayStatusUseCase(gh<_i477.AttendanceRepository>()));
-    gh.lazySingleton<_i21.RegisterAttendanceUseCase>(
-        () => _i21.RegisterAttendanceUseCase(gh<_i477.AttendanceRepository>()));
+    gh.lazySingleton<_i21.InitAttendanceUseCase>(
+        () => _i21.InitAttendanceUseCase(gh<_i477.AttendanceRepository>()));
+    gh.lazySingleton<_i21.SubmitAttendanceUseCase>(
+        () => _i21.SubmitAttendanceUseCase(gh<_i477.AttendanceRepository>()));
+    gh.lazySingleton<_i420.CheckPermissionsUseCase>(
+        () => _i420.CheckPermissionsUseCase(gh<_i606.PermissionRepository>()));
+    gh.lazySingleton<_i509.RequestPermissionsUseCase>(() =>
+        _i509.RequestPermissionsUseCase(gh<_i606.PermissionRepository>()));
+    gh.factory<_i714.PermissionBloc>(() => _i714.PermissionBloc(
+          gh<_i420.CheckPermissionsUseCase>(),
+          gh<_i509.RequestPermissionsUseCase>(),
+        ));
     gh.factory<_i677.HistoryBloc>(
         () => _i677.HistoryBloc(gh<_i1054.GetHistoryUseCase>()));
     gh.factory<_i700.AttendanceBloc>(() => _i700.AttendanceBloc(
           gh<_i317.GetTodayStatusUseCase>(),
-          gh<_i21.RegisterAttendanceUseCase>(),
+          gh<_i21.InitAttendanceUseCase>(),
+          gh<_i21.SubmitAttendanceUseCase>(),
           gh<_i630.VerificationManager>(),
-          gh<_i360.GetWorkplaceConfigUseCase>(),
           gh<_i814.AuthLocalDatasource>(),
         ));
     return this;

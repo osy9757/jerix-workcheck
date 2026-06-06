@@ -1,3 +1,5 @@
+import 'dart:convert'; // base64Encode (QR PNG 다운로드용)
+import 'dart:html' as html; // Web 다운로드(AnchorElement) 트리거용
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -256,6 +258,9 @@ class _VerificationPageState extends State<VerificationPage> {
                             subtitle: '스캔 → 인증 성공',
                             data: codes[i],
                             color: const Color(0xFF2DDAA9),
+                            // 파일명: 유저명_QR_<번호> (코드별 개별 다운로드)
+                            fileLabel:
+                                '${_selectedUser?.name ?? "user"}_QR_${i + 1}',
                           ),
                       ],
                     ),
@@ -306,6 +311,7 @@ class _VerificationPageState extends State<VerificationPage> {
     required String subtitle,
     required String data,
     required Color color,
+    String? fileLabel, // 다운로드 파일명에 쓰일 라벨 (없으면 다운로드 버튼 숨김)
   }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -345,8 +351,67 @@ class _VerificationPageState extends State<VerificationPage> {
           data.length > 20 ? '${data.substring(0, 20)}...' : data,
           style: TextStyle(fontSize: 10, color: Colors.grey[400]),
         ),
+        // QR PNG 다운로드 버튼 (fileLabel 이 있을 때만 노출)
+        if (fileLabel != null) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.download, size: 16),
+            label: const Text('QR 다운로드'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: color,
+              side: BorderSide(color: color.withOpacity(0.5)),
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: () => _downloadQrPng(data, fileLabel),
+          ),
+        ],
       ],
     );
+  }
+
+  /// QR 코드 문자열을 512px PNG 로 렌더링해 Web 에서 다운로드
+  Future<void> _downloadQrPng(String data, String fileLabel) async {
+    // 빈 페이로드는 다운로드 불가 (presets_page 와 동작 일치)
+    if (data.trim().isEmpty) {
+      _showQrDownloadError();
+      return;
+    }
+    try {
+      // qr_flutter 의 QrPainter 로 PNG ByteData 생성 (canvaskit 렌더러 필요)
+      final painter = QrPainter(
+        data: data,
+        version: QrVersions.auto,
+        gapless: true,
+      );
+      final byteData = await painter.toImageData(512);
+      if (byteData == null) {
+        _showQrDownloadError();
+        return;
+      }
+      // ByteData → base64 data URL → AnchorElement 클릭으로 다운로드
+      final bytes = byteData.buffer.asUint8List();
+      final base64 = base64Encode(bytes);
+      final fileName = '${_safeFileName(fileLabel)}.png';
+      html.AnchorElement(href: 'data:image/png;base64,$base64')
+        ..setAttribute('download', fileName)
+        ..click();
+    } catch (_) {
+      _showQrDownloadError();
+    }
+  }
+
+  /// 다운로드 실패 안내 (주로 canvaskit 미사용 시)
+  void _showQrDownloadError() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('QR 다운로드에 실패했습니다.')),
+    );
+  }
+
+  /// 파일명 금지 문자(\ / : * ? " < > |)와 공백만 _ 로 치환 (한글 등 유니코드는 보존)
+  String _safeFileName(String raw) {
+    final cleaned = raw.replaceAll(RegExp(r'[\\/:*?"<>|\s]+'), '_');
+    return cleaned.isEmpty ? 'QR' : cleaned;
   }
 
   String _generateRandomQr() {
@@ -1041,6 +1106,23 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
                 ),
             ],
           ),
+          // NFC 안내: 태그 탭 인증이므로 세기/거리 설정이 없음 (비콘 안내와 동일 스타일)
+          if (widget.primitive == 'NFC')
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'NFC는 태그 탭 인증으로 세기/거리 설정이 없습니다. 신호세기 기반 인증은 비콘을 사용하세요.',
+                  style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                ),
+              ),
+            ),
           const SizedBox(height: 8),
 
           // row 카드들

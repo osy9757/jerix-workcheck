@@ -1,4 +1,7 @@
+import 'dart:convert'; // base64Encode (QR PNG 다운로드용)
+import 'dart:html' as html; // Web 다운로드(AnchorElement) 트리거용
 import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart'; // QrPainter (QR PNG 렌더)
 import '../services/api_service.dart';
 import '../models/models.dart';
 import '../utils/verification_targets.dart';
@@ -1012,6 +1015,17 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                       ),
                     ),
                   ),
+                  // QR PNG 다운로드 (현재 입력값 기준, 코드별 개별 다운로드)
+                  IconButton(
+                    icon: const Icon(Icons.download, size: 20),
+                    tooltip: 'QR 다운로드',
+                    color: _primary,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _downloadQrPng(
+                      _qrCodeCtrls[i].text.trim(),
+                      '${_nameCtrl.text.trim().isEmpty ? "preset" : _nameCtrl.text.trim()}_QR_${i + 1}',
+                    ),
+                  ),
                   IconButton(
                     icon: const Icon(Icons.delete_outline, size: 20),
                     tooltip: _qrCodeCtrls.length == 1 ? '값 비우기' : 'QR 삭제',
@@ -1036,6 +1050,51 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
         const SizedBox(height: 8),
       ],
     );
+  }
+
+  /// QR 코드 문자열을 512px PNG 로 렌더링해 Web 에서 다운로드
+  Future<void> _downloadQrPng(String data, String fileLabel) async {
+    // 빈 페이로드는 다운로드 불가 안내
+    if (data.isEmpty) {
+      _showQrDownloadError('QR 페이로드를 입력하세요.');
+      return;
+    }
+    try {
+      // qr_flutter 의 QrPainter 로 PNG ByteData 생성 (canvaskit 렌더러 필요)
+      final painter = QrPainter(
+        data: data,
+        version: QrVersions.auto,
+        gapless: true,
+      );
+      final byteData = await painter.toImageData(512);
+      if (byteData == null) {
+        _showQrDownloadError('QR 다운로드에 실패했습니다.');
+        return;
+      }
+      // ByteData → base64 data URL → AnchorElement 클릭으로 다운로드
+      final bytes = byteData.buffer.asUint8List();
+      final base64 = base64Encode(bytes);
+      final fileName = '${_safeFileName(fileLabel)}.png';
+      html.AnchorElement(href: 'data:image/png;base64,$base64')
+        ..setAttribute('download', fileName)
+        ..click();
+    } catch (_) {
+      _showQrDownloadError('QR 다운로드에 실패했습니다.');
+    }
+  }
+
+  /// 다운로드 실패/안내 스낵바
+  void _showQrDownloadError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  /// 파일명 금지 문자(\ / : * ? " < > |)와 공백만 _ 로 치환 (한글 등 유니코드는 보존)
+  String _safeFileName(String raw) {
+    final cleaned = raw.replaceAll(RegExp(r'[\\/:*?"<>|\s]+'), '_');
+    return cleaned.isEmpty ? 'QR' : cleaned;
   }
 
   @override
@@ -1082,6 +1141,23 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                 onChanged: _onMethodTypeChanged,
               ),
               const SizedBox(height: 16),
+
+              // NFC 안내: 태그 탭 인증이므로 세기/거리 설정이 없음 (비콘 안내와 동일 스타일)
+              if (_methodType == 'NFC') ...[
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'NFC는 태그 탭 인증으로 세기/거리 설정이 없습니다. 신호세기 기반 인증은 비콘을 사용하세요.',
+                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
 
               // 부품 그룹별 동적 row 섹션
               // QR 단독은 부품 row가 없으므로(QR 섹션만 사용) 안내 박스 생략

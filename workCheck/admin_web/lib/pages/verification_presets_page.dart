@@ -114,15 +114,15 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
       await widget.apiService.deletePreset(preset.id);
       _load();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('삭제되었습니다')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('삭제되었습니다')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('삭제에 실패했습니다')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('삭제에 실패했습니다')));
       }
     }
   }
@@ -146,7 +146,7 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
   }
 
   /// configData를 한 줄 요약 문자열로 만들기 (DataTable 표시용)
-  /// 신 schema(`*_targets`/`qr_codes`) 기준으로 부품별 개수를 표시.
+  /// v2 schema(`targets`/`codes`) 기준으로 부품별 개수를 표시.
   /// 단일 dict 폴백도 호환 ("위치 1개" 등으로 표시).
   String _summarizeConfig(VerificationPreset p) {
     if (p.configData.isEmpty) return '-';
@@ -188,10 +188,9 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
             children: [
               Text(
                 '인증 프리셋',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const Spacer(),
               IconButton(
@@ -237,8 +236,11 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.bookmark_border,
-                        size: 48, color: Colors.grey[400]),
+                    Icon(
+                      Icons.bookmark_border,
+                      size: 48,
+                      color: Colors.grey[400],
+                    ),
                     const SizedBox(height: 8),
                     Text(
                       '프리셋이 없습니다',
@@ -308,75 +310,71 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
               DataColumn(label: Text('작업')),
             ],
             rows: _presets.map((p) {
-              return DataRow(cells: [
-                DataCell(Text('${p.id}')),
-                DataCell(Text(p.name)),
-                DataCell(
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2DDAA9).withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      _displayName(p.methodType),
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF1B7E62),
-                        fontWeight: FontWeight.w600,
+              return DataRow(
+                cells: [
+                  DataCell(Text('${p.id}')),
+                  DataCell(Text(p.name)),
+                  DataCell(
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2DDAA9).withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        _displayName(p.methodType),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF1B7E62),
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                DataCell(
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 320),
-                    child: Text(
-                      _summarizeConfig(p),
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[700],
+                  DataCell(
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 320),
+                      child: Text(
+                        _summarizeConfig(p),
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                       ),
                     ),
                   ),
-                ),
-                DataCell(
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 200),
-                    child: Text(
-                      p.memo ?? '-',
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
+                  DataCell(
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 200),
+                      child: Text(
+                        p.memo ?? '-',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                       ),
                     ),
                   ),
-                ),
-                DataCell(
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit, size: 18),
-                        tooltip: '수정',
-                        color: const Color(0xFF2DDAA9),
-                        onPressed: () => _showEditDialog(p),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        tooltip: '삭제',
-                        color: Colors.red,
-                        onPressed: () => _confirmDelete(p),
-                      ),
-                    ],
+                  DataCell(
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit, size: 18),
+                          tooltip: '수정',
+                          color: const Color(0xFF2DDAA9),
+                          onPressed: () => _showEditDialog(p),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          tooltip: '삭제',
+                          color: Colors.red,
+                          onPressed: () => _confirmDelete(p),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ]);
+                ],
+              );
             }).toList(),
           ),
         ),
@@ -388,7 +386,7 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
 /// 프리셋 추가/수정 다이얼로그 (동적 row UI - 신 schema)
 /// - 인증 수단 드롭다운 변경 시 부품 그룹 단위로 row UI 재생성
 /// - 부품 그룹별 row 카드 N개 + "+ 추가" 버튼
-/// - GPS_QR/WIFI_QR은 별도 QR 코드 섹션
+/// - QR은 별도 codes[] 섹션
 /// - 최소 1 row 유지
 class _PresetEditDialog extends StatefulWidget {
   final ApiService apiService;
@@ -422,7 +420,10 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
   /// configKey → 부품 row 컨트롤러 리스트 (각 row는 field key → TextEditingController)
   final Map<String, List<Map<String, TextEditingController>>> _rowsByKey = {};
 
-  /// QR 코드 컨트롤러 리스트 (qr_codes 섹션)
+  /// WiFi 전용: configKey → row index별 identifier_type ('bssid' | 'ip')
+  final Map<String, List<String>> _wifiIdTypesByKey = {};
+
+  /// QR 코드 컨트롤러 리스트 (codes 섹션)
   final List<TextEditingController> _qrCodeCtrls = [];
 
   bool _saving = false;
@@ -446,8 +447,14 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
       final fields = rowFieldsForPart(group.partType);
       var targets = extractTargets(source, group.configKey, fields);
       if (targets.isEmpty) targets = [<String, dynamic>{}]; // 최소 1 row 유지
-      _rowsByKey[group.configKey] =
-          targets.map((t) => _makeRowControllers(fields, t)).toList();
+      _rowsByKey[group.configKey] = targets
+          .map((t) => _makeRowControllers(fields, t))
+          .toList();
+      if (group.partType == 'WIFI') {
+        _wifiIdTypesByKey[group.configKey] = targets
+            .map(wifiIdentifierTypeOf)
+            .toList();
+      }
     }
     if (hasQrCodesSection(_methodType)) {
       var codes = extractQrCodes(source);
@@ -465,7 +472,9 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
   ) {
     final m = <String, TextEditingController>{};
     for (final f in fields) {
-      final v = data[f.key];
+      final v = f.key == 'identifier_value'
+          ? data[f.key] ?? data['bssid'] ?? data['ip']
+          : data[f.key];
       m[f.key] = TextEditingController(text: v?.toString() ?? '');
     }
     return m;
@@ -481,6 +490,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
       }
     }
     _rowsByKey.clear();
+    _wifiIdTypesByKey.clear();
     for (final c in _qrCodeCtrls) {
       c.dispose();
     }
@@ -510,8 +520,12 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
   void _addRow(PartGroup group) {
     setState(() {
       final fields = rowFieldsForPart(group.partType);
-      _rowsByKey[group.configKey]!
-          .add(_makeRowControllers(fields, const <String, dynamic>{}));
+      _rowsByKey[group.configKey]!.add(
+        _makeRowControllers(fields, const <String, dynamic>{}),
+      );
+      if (group.partType == 'WIFI') {
+        _wifiIdTypesByKey[group.configKey]!.add('bssid');
+      }
     });
   }
 
@@ -523,12 +537,18 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
         for (final c in list[0].values) {
           c.clear();
         }
+        if (group.partType == 'WIFI') {
+          _wifiIdTypesByKey[group.configKey]![0] = 'bssid';
+        }
         return;
       }
       for (final c in list[index].values) {
         c.dispose();
       }
       list.removeAt(index);
+      if (group.partType == 'WIFI') {
+        _wifiIdTypesByKey[group.configKey]!.removeAt(index);
+      }
     });
   }
 
@@ -541,9 +561,9 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
   Future<void> _openGpsPicker(PartGroup group, int i) async {
     final row = _rowsByKey[group.configKey]?[i];
     if (row == null) return;
-    final latText = row['latitude']?.text.trim() ?? '';
-    final lngText = row['longitude']?.text.trim() ?? '';
-    final radiusText = row['radius_meters']?.text.trim() ?? '';
+    final latText = row['lat']?.text.trim() ?? '';
+    final lngText = row['lng']?.text.trim() ?? '';
+    final radiusText = row['radius_m']?.text.trim() ?? '';
     final result = await showDialog<GpsPickResult>(
       context: context,
       barrierDismissible: false,
@@ -555,9 +575,9 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     );
     if (result == null || !mounted) return;
     setState(() {
-      row['latitude']?.text = result.latitude.toStringAsFixed(6);
-      row['longitude']?.text = result.longitude.toStringAsFixed(6);
-      row['radius_meters']?.text = result.radiusMeters.toString();
+      row['lat']?.text = result.latitude.toStringAsFixed(6);
+      row['lng']?.text = result.longitude.toStringAsFixed(6);
+      row['radius_m']?.text = result.radiusMeters.toString();
     });
   }
 
@@ -607,9 +627,15 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
       final fields = rowFieldsForPart(group.partType);
       final list = _rowsByKey[group.configKey] ?? const [];
       final arr = <Map<String, dynamic>>[];
-      for (final row in list) {
+      for (int i = 0; i < list.length; i++) {
+        final row = list[i];
         final m = _rowToMap(row, fields);
         if (m.isEmpty) continue;
+        // WIFI는 직원 인증 설정 화면과 같은 identifier_type/identifier_value schema로 저장한다.
+        if (group.partType == 'WIFI') {
+          m['identifier_type'] =
+              _wifiIdTypesByKey[group.configKey]?[i] ?? 'bssid';
+        }
         arr.add(m);
       }
       config[group.configKey] = arr;
@@ -628,15 +654,14 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
   Future<void> _save() async {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('이름을 입력하세요')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('이름을 입력하세요')));
       return;
     }
     setState(() => _saving = true);
     try {
-      final memo =
-          _memoCtrl.text.trim().isEmpty ? null : _memoCtrl.text.trim();
+      final memo = _memoCtrl.text.trim().isEmpty ? null : _memoCtrl.text.trim();
       final config = _buildConfigData();
 
       if (widget.preset == null) {
@@ -663,7 +688,8 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                widget.preset == null ? '프리셋이 생성되었습니다' : '프리셋이 수정되었습니다'),
+              widget.preset == null ? '프리셋이 생성되었습니다' : '프리셋이 수정되었습니다',
+            ),
             duration: const Duration(seconds: 1),
           ),
         );
@@ -671,9 +697,9 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('저장에 실패했습니다')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('저장에 실패했습니다')));
       }
     }
   }
@@ -719,8 +745,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
               ),
               const SizedBox(width: 6),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: _primary.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -754,7 +779,9 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
                           color: _primary.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(10),
@@ -789,25 +816,10 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                       ),
                     ],
                   ),
-                  ...fields.map((f) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: TextField(
-                        controller: rows[i][f.key],
-                        keyboardType: f.type == ConfigFieldType.int_ ||
-                                f.type == ConfigFieldType.double_
-                            ? const TextInputType.numberWithOptions(
-                                decimal: true, signed: true)
-                            : TextInputType.text,
-                        decoration: InputDecoration(
-                          labelText: f.label,
-                          helperText: f.hint,
-                          border: const OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                      ),
-                    );
-                  }),
+                  if (group.partType == 'WIFI')
+                    _buildWifiPresetFields(group, i, rows[i])
+                  else
+                    ..._buildGenericPresetFields(fields, rows[i]),
                 ],
               ),
             ),
@@ -827,7 +839,102 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     );
   }
 
-  /// QR 코드 섹션 빌드 (GPS_QR/WIFI_QR 전용)
+  /// 일반 프리셋 row 필드 (GPS / NFC / BEACON)
+  List<Widget> _buildGenericPresetFields(
+    List<ConfigField> fields,
+    Map<String, TextEditingController> row,
+  ) {
+    return fields.map((f) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: TextField(
+          controller: row[f.key],
+          keyboardType:
+              f.type == ConfigFieldType.int_ ||
+                  f.type == ConfigFieldType.double_
+              ? const TextInputType.numberWithOptions(
+                  decimal: true,
+                  signed: true,
+                )
+              : TextInputType.text,
+          decoration: InputDecoration(
+            labelText: f.label,
+            helperText: f.hint,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+      );
+    }).toList();
+  }
+
+  /// WiFi 프리셋 row 필드 (직원 인증 설정과 동일한 schema)
+  Widget _buildWifiPresetFields(
+    PartGroup group,
+    int index,
+    Map<String, TextEditingController> row,
+  ) {
+    final idTypes = _wifiIdTypesByKey[group.configKey]!;
+    final type = idTypes[index];
+    final identifierLabel = type == 'ip' ? 'IP 주소' : 'BSSID (MAC)';
+    final identifierHint = type == 'ip'
+        ? '예: 192.168.10.5 또는 게이트웨이 IP'
+        : '예: aa:bb:cc:dd:ee:ff (콜론/하이픈 무관)';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: TextField(
+            controller: row['ssid'],
+            decoration: const InputDecoration(
+              labelText: 'WiFi SSID',
+              helperText: '네트워크 이름 (항상 비교)',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            children: [
+              const Text(
+                '식별자: ',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(width: 8),
+              ChoiceChip(
+                label: const Text('BSSID'),
+                selected: type == 'bssid',
+                selectedColor: _primary.withValues(alpha: 0.2),
+                onSelected: (_) => setState(() => idTypes[index] = 'bssid'),
+              ),
+              const SizedBox(width: 6),
+              ChoiceChip(
+                label: const Text('IP'),
+                selected: type == 'ip',
+                selectedColor: _primary.withValues(alpha: 0.2),
+                onSelected: (_) => setState(() => idTypes[index] = 'ip'),
+              ),
+            ],
+          ),
+        ),
+        TextField(
+          controller: row['identifier_value'],
+          decoration: InputDecoration(
+            labelText: identifierLabel,
+            helperText: identifierHint,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// QR 코드 섹션 빌드 (QR 전용)
   Widget _buildQrCodesSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -846,8 +953,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
               ),
               const SizedBox(width: 6),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: _primary.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
@@ -878,7 +984,9 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 2),
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: _primary.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(10),
@@ -992,7 +1100,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
               else
                 ...groups.map(_buildPartSection),
 
-              // QR 코드 섹션 (GPS_QR/WIFI_QR/QR 단독)
+              // QR 코드 섹션 (QR 단독)
               if (hasQr) _buildQrCodesSection(),
 
               const SizedBox(height: 12),

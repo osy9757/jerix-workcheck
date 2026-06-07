@@ -482,22 +482,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<PoiStyle> _markerStyle(String assetPath) async {
-    final style = PoiStyle(
-      icon: await _markerImage(assetPath, 32),
+    // 단일 줌스타일(zoomLevel 0, 모든 줌 적용)로 단순화. 기존 다중 브레이크포인트
+    // (0/15/17, 아이콘 3회 래스터화)를 1회로 줄임.
+    // 참고: 출근지 마커가 fit(저)줌에서 안 보이는 이슈는 이 변경으로 해결되지 않았음
+    // (라벨 밀집 지역 카카오 라벨 LOD 추정). 후속으로 Flutter 오버레이 마커로 대응 예정.
+    return PoiStyle(
+      icon: await _markerImage(assetPath, _baseMarkerSize),
       anchor: const KPoint(0.5, 1.0),
       zoomLevel: 0,
     );
-    style.addStyle(
-      zoomLevel: 15,
-      icon: await _markerImage(assetPath, _baseMarkerSize),
-      anchor: const KPoint(0.5, 1.0),
-    );
-    style.addStyle(
-      zoomLevel: 17,
-      icon: await _markerImage(assetPath, 48),
-      anchor: const KPoint(0.5, 1.0),
-    );
-    return style;
   }
 
   Future<void> _upsertCurrentLocationPoi(
@@ -514,6 +507,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       position,
       style: await _markerStyle('assets/icons/current_location.svg'),
       id: 'current_location',
+      // 높은 rank: 저줌/밀집 지역에서 기본맵 라벨에 밀려 컬링되지 않도록
+      rank: 10000,
     );
   }
 
@@ -531,6 +526,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       position,
       style: await _markerStyle('assets/icons/destination.svg'),
       id: 'destination',
+      // 출근지 마커 최우선 rank: 공덕역 등 라벨 밀집 지역에서도 저줌에 항상 표시
+      rank: 20000,
     );
   }
 

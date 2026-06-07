@@ -3,6 +3,7 @@ import '../services/api_service.dart';
 import 'verification_page.dart';
 import 'attendance_page.dart';
 import 'verification_presets_page.dart';
+import 'device_requests_page.dart';
 
 /// 대시보드 - MVP 시연용 간략화 (인증 설정 + 인증 프리셋 + 출퇴근 기록)
 class DashboardPage extends StatefulWidget {
@@ -25,6 +26,8 @@ class _DashboardPageState extends State<DashboardPage> {
         return VerificationPresetsPage(apiService: widget.apiService);
       case 2:
         return AttendancePage(apiService: widget.apiService);
+      case 3:
+        return DeviceRequestsPage(apiService: widget.apiService);
       default:
         return VerificationPage(apiService: widget.apiService);
     }
@@ -84,6 +87,10 @@ class _DashboardPageState extends State<DashboardPage> {
               NavigationRailDestination(
                 icon: Icon(Icons.history),
                 label: Text('출퇴근 기록'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.phone_android),
+                label: Text('기기 승인'),
               ),
             ],
           ),

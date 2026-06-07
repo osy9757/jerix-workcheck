@@ -190,6 +190,48 @@ class VerificationPreset {
   }
 }
 
+/// 기기 승인 요청 모델 (기기 바인딩 — 계획 A ④Admin)
+/// - 응답 키는 snake_case (백엔드 data class Jackson SNAKE_CASE)
+/// - status: 'PENDING' | 'APPROVED' | 'REJECTED'
+class DeviceRequest {
+  final int id;
+  final int userId; // 소속 유저 PK
+  final String employeeId; // 사번
+  final String name; // 직원 이름 (employee_name)
+  final String? department; // 부서 (선택)
+  final String deviceId; // 기기 식별자 (flutter_udid)
+  final String status; // PENDING / APPROVED / REJECTED
+  final String requestedAt; // 요청일 ISO-8601
+  final String? approvedAt; // 승인일 ISO-8601 (미승인 시 null)
+
+  DeviceRequest({
+    required this.id,
+    required this.userId,
+    required this.employeeId,
+    required this.name,
+    this.department,
+    required this.deviceId,
+    required this.status,
+    required this.requestedAt,
+    this.approvedAt,
+  });
+
+  /// JSON → 객체 (snake_case 키 매핑)
+  factory DeviceRequest.fromJson(Map<String, dynamic> json) {
+    return DeviceRequest(
+      id: json['id'] as int,
+      userId: json['user_id'] as int,
+      employeeId: json['employee_id'] as String,
+      name: json['employee_name'] as String,
+      department: json['department'] as String?,
+      deviceId: json['device_id'] as String,
+      status: json['status'] as String,
+      requestedAt: json['requested_at'] as String? ?? '',
+      approvedAt: json['approved_at'] as String?,
+    );
+  }
+}
+
 /// 직원 모델 (api_contract v2 — workplace 필드 제거, email/department 추가)
 class Employee {
   final int id;

@@ -126,3 +126,39 @@ CREATE TABLE verification_presets (
 -- 인덱스: 인증 방법별 프리셋 필터링
 CREATE INDEX idx_verification_presets_method_type
     ON verification_presets (method_type);
+
+-- ============================================
+-- 7. 기기 바인딩 (대리 출퇴근 방지)
+-- ============================================
+-- 유저당 APPROVED(승인) 기기 정확히 1대만 허용 → 다른 기기로 로그인 시 403 차단.
+-- 첫 기기는 자동 승인, 이후 새 기기는 관리자 승인 필요.
+--   * status 는 ENUM 회피: VARCHAR(16) + CHECK (uvm 패턴과 동일, JPA validate 일치)
+--   * device_id 는 flutter_udid 불투명 식별자 (iOS Keychain UUID / Android ANDROID_ID)
+--   * platform/model 은 관리자 화면 표시용 (선택)
+CREATE TABLE user_devices (
+    id           BIGSERIAL    PRIMARY KEY,
+    user_id      BIGINT       NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_id    VARCHAR(255) NOT NULL,                      -- flutter_udid 불투명 식별자
+    status       VARCHAR(16)  NOT NULL DEFAULT 'PENDING'
+                 CHECK (status IN ('PENDING','APPROVED','REJECTED')),
+    platform     VARCHAR(16)  CHECK (platform IS NULL OR platform IN ('IOS','ANDROID')),
+    model        VARCHAR(100),
+    requested_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),         -- 등록/요청 시각
+    approved_at  TIMESTAMPTZ,                                 -- 승인 시각 (APPROVED 일 때만)
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+
+    UNIQUE (user_id, device_id)                              -- 한 유저의 같은 기기 중복 row 금지
+);
+
+-- 핵심 불변식: 유저당 APPROVED 1대 (부분 유니크 인덱스로 DB 레벨 강제)
+CREATE UNIQUE INDEX uq_user_devices_one_approved
+    ON user_devices (user_id) WHERE status = 'APPROVED';
+
+-- 인덱스: 관리자 승인 대기열 조회 (status 필터 + 요청순 정렬)
+CREATE INDEX idx_user_devices_status_requested
+    ON user_devices (status, requested_at ASC);
+
+-- 인덱스: 유저별 기기 상태 조회 (로그인 상태머신)
+CREATE INDEX idx_user_devices_user_status
+    ON user_devices (user_id, status);

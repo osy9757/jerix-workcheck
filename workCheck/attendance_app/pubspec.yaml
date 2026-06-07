@@ -25,6 +25,9 @@ dependencies:
   # Local Storage
   shared_preferences: ^2.3.4
 
+  # Device ID (기기 바인딩: iOS Keychain UUID 재설치 유지 / Android ANDROID_ID)
+  flutter_udid: ^4.0.0
+
   # Routing
   go_router: ^17.2.0
 

@@ -51,6 +51,7 @@ import '../../features/verification/data/services/wifi_service.dart' as _i1036;
 import '../../features/verification/data/verification_manager.dart' as _i630;
 import '../../features/verification/domain/verification_strategy.dart' as _i626;
 import '../network/dio_client.dart' as _i667;
+import '../utils/device_id_provider.dart' as _i283;
 
 extension GetItInjectableX on _i174.GetIt {
 // initializes the registration of main-scope dependencies inside of GetIt
@@ -65,6 +66,7 @@ extension GetItInjectableX on _i174.GetIt {
     );
     final networkModule = _$NetworkModule();
     gh.lazySingleton<_i361.Dio>(() => networkModule.dio);
+    gh.lazySingleton<_i283.DeviceIdProvider>(() => _i283.DeviceIdProvider());
     gh.lazySingleton<_i814.AuthLocalDatasource>(
         () => _i814.AuthLocalDatasource());
     gh.lazySingleton<_i397.PermissionLocalDataSource>(

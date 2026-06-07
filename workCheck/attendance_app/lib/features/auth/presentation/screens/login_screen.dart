@@ -7,10 +7,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/utils/device_id_provider.dart';
 import '../../data/datasources/local/auth_local_datasource.dart';
 import '../../../../presentation/common_widgets/app_text_field.dart';
 import '../../../../presentation/common_widgets/device_access_dialog.dart';
 import '../../../../presentation/common_widgets/secure_number_pad.dart';
+import '../../../../presentation/navigation/app_router.dart';
 import '../../../permission/domain/repositories/permission_repository.dart';
 import '../../../permission/presentation/bloc/permission_bloc.dart';
 import '../../../permission/presentation/widgets/permission_dialog.dart';
@@ -148,6 +150,9 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
     final password = _passwordController.text;
 
     try {
+      // 기기 식별자 조회 (기기 바인딩 검증용)
+      final deviceId = await getIt<DeviceIdProvider>().getDeviceId();
+
       // 서버 로그인 API 호출
       final dio = getIt<Dio>();
       final response = await dio.post(
@@ -156,6 +161,7 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
           'company_code': companyCode,
           'employee_id': employeeId,
           'password': password,
+          'device_id': deviceId,
         },
       );
 
@@ -198,13 +204,20 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
           context: context,
           title: '접속이 허용된 기기가 아닙니다',
           content: message ??
-              '사용자의 휴대폰 기기 ID/IMEI가 접속이 허용된 기기가\n'
+              '사용자의 휴대폰 기기 ID가 접속이 허용된 기기가\n'
                   '아니거나 다시 등록해야 하는 기기입니다.\n\n'
                   '아래 접속 허용 요청을 하시면\n'
                   '인사 담당자의 확인을 거쳐 접속할 수 있습니다.',
           buttonText: '담당자에게 접속 허용 요청',
+          // 버튼 클릭 시 기기 접속 허용 요청 API 호출 후 대기화면 이동
           onButtonPressed: () {
+            // 다이얼로그 먼저 닫고 요청 처리
             Navigator.of(context).pop();
+            _requestDeviceAccess(
+              companyCode: companyCode,
+              employeeId: employeeId,
+              password: password,
+            );
           },
         );
       } else if (statusCode == 401) {
@@ -222,6 +235,45 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       if (mounted) {
         setState(() {
           _passwordError = '로그인 중 오류가 발생했습니다.';
+        });
+      }
+    }
+  }
+
+  /// 기기 접속 허용 요청 처리
+  ///
+  /// 서버에 새 기기를 PENDING 상태로 등록 요청한 뒤 대기화면으로 이동.
+  /// - 인사정보 재검증을 위해 비밀번호도 함께 전송 (무단 PENDING 방지)
+  Future<void> _requestDeviceAccess({
+    required String companyCode,
+    required String employeeId,
+    required String password,
+  }) async {
+    try {
+      // 기기 식별자 조회
+      final deviceId = await getIt<DeviceIdProvider>().getDeviceId();
+
+      // 기기 접속 허용 요청 API 호출
+      final dio = getIt<Dio>();
+      await dio.post(
+        ApiConstants.deviceRequest,
+        data: {
+          'company_code': companyCode,
+          'employee_id': employeeId,
+          'password': password,
+          'device_id': deviceId,
+        },
+      );
+
+      // 요청 성공 → 승인 대기화면으로 이동
+      if (mounted) {
+        context.go(AppRoutes.deviceWaiting);
+      }
+    } catch (e) {
+      // 요청 실패: 오류 안내
+      if (mounted) {
+        setState(() {
+          _passwordError = '접속 허용 요청에 실패했습니다. 다시 시도해주세요.';
         });
       }
     }

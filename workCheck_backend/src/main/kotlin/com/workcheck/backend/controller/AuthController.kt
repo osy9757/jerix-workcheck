@@ -2,8 +2,10 @@ package com.workcheck.backend.controller
 
 import com.workcheck.backend.dto.request.AdminLoginRequest
 import com.workcheck.backend.dto.request.AppLoginRequest
+import com.workcheck.backend.dto.request.DeviceAccessRequest
 import com.workcheck.backend.dto.response.AdminLoginResponse
 import com.workcheck.backend.dto.response.AppLoginResponse
+import com.workcheck.backend.dto.response.DeviceAccessResponse
 import com.workcheck.backend.service.AdminService
 import com.workcheck.backend.service.AuthService
 import jakarta.validation.Valid
@@ -27,5 +29,11 @@ class AuthController(
     @PostMapping("/admin/login")
     fun adminLogin(@Valid @RequestBody request: AdminLoginRequest): ResponseEntity<AdminLoginResponse> {
         return ResponseEntity.ok(adminService.login(request))
+    }
+
+    // 기기 접근 요청 (기기 불일치 403 후 "관리자 요청" → 새 기기 PENDING 등록)
+    @PostMapping("/device/request")
+    fun requestDeviceAccess(@Valid @RequestBody request: DeviceAccessRequest): ResponseEntity<DeviceAccessResponse> {
+        return ResponseEntity.ok(authService.requestDeviceAccess(request))
     }
 }

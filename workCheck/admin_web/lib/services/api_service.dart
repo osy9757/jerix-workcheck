@@ -108,6 +108,39 @@ class ApiService {
     return Employee.fromJson(response.data as Map<String, dynamic>);
   }
 
+  // --- 기기 승인 관리 (기기 바인딩 — 계획 A ④Admin) ---
+
+  /// 기기 요청 목록 조회 (status 생략 시 전체)
+  /// - GET /admin/devices?status=PENDING|APPROVED|REJECTED
+  /// - 응답은 직접 배열 (래퍼 없음) → response.data as List
+  Future<List<DeviceRequest>> getDeviceRequests({String? status}) async {
+    final response = await _dio.get(
+      '/admin/devices',
+      queryParameters: {
+        if (status != null && status.isNotEmpty) 'status': status,
+      },
+    );
+    final list = (response.data as List)
+        .map((d) => DeviceRequest.fromJson(d as Map<String, dynamic>))
+        .toList();
+    return list;
+  }
+
+  /// 기기 승인 (POST /admin/devices/{id}/approve)
+  /// - 기존 APPROVED 기기는 서버가 REJECTED로 강등(교체)
+  /// - 응답: 갱신된 단일 DeviceRequest 객체
+  Future<DeviceRequest> approveDevice(int id) async {
+    final response = await _dio.post('/admin/devices/$id/approve');
+    return DeviceRequest.fromJson(response.data as Map<String, dynamic>);
+  }
+
+  /// 기기 거부 (POST /admin/devices/{id}/reject)
+  /// - 응답: 갱신된 단일 DeviceRequest 객체
+  Future<DeviceRequest> rejectDevice(int id) async {
+    final response = await _dio.post('/admin/devices/$id/reject');
+    return DeviceRequest.fromJson(response.data as Map<String, dynamic>);
+  }
+
   // --- 유저 인증 method (5-enum) ---
 
   /// 유저의 5개 method 전체 조회

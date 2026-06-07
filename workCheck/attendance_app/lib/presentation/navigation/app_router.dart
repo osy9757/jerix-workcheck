@@ -7,6 +7,7 @@ import '../../features/attendance/presentation/bloc/attendance_bloc.dart';
 import '../../features/attendance/presentation/screens/attendance_screen.dart';
 import '../../features/attendance/presentation/screens/history_screen.dart';
 import '../../features/attendance/presentation/screens/qr_scan_screen.dart';
+import '../../features/auth/presentation/screens/device_waiting_screen.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/register_screen.dart';
 import '../../features/auth/presentation/screens/settings_screen.dart';
@@ -20,6 +21,7 @@ abstract class AppRoutes {
   static const settings = '/settings';
   static const qrScan = '/qr-scan';
   static const debugScan = '/debug-scan';
+  static const deviceWaiting = '/device-waiting';
 }
 
 /// 글로벌 네비게이터 키 (서비스 레이어에서 다이얼로그 표시용)
@@ -61,6 +63,10 @@ final appRouter = GoRouter(
     GoRoute(
       path: AppRoutes.debugScan,
       builder: (context, state) => const DebugScanScreen(),
+    ),
+    GoRoute(
+      path: AppRoutes.deviceWaiting,
+      builder: (context, state) => const DeviceWaitingScreen(),
     ),
   ],
   errorBuilder: (context, state) => Scaffold(

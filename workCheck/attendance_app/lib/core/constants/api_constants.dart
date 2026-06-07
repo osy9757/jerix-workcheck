@@ -16,6 +16,9 @@ abstract class ApiConstants {
   // 인증
   static const String login = '$apiPrefix/auth/login';
 
+  // 기기 접속 허용 요청 (기기 바인딩: 새 기기 PENDING 등록)
+  static const String deviceRequest = '$apiPrefix/auth/device/request';
+
   // 출퇴근 - 2단계 호출 (v2 리팩토링)
   // init: 어떤 method 데이터를 모아야 하는지 안내
   // submit: 수집된 verification_data 일괄 검증 + 등록

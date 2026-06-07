@@ -1,6 +1,7 @@
 package com.workcheck.backend.config
 
 import com.workcheck.backend.service.AuthenticationFailedException
+import com.workcheck.backend.service.DeviceNotAllowedException
 import com.workcheck.backend.service.VerificationFailedException
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -43,5 +44,18 @@ class GlobalExceptionHandler {
         logger.warn("[Error] 401 Unauthorized: ${e.message}")
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
             .body(mapOf("error" to (e.message ?: "인증 실패")))
+    }
+
+    // 기기 바인딩 차단 → 403 + DEVICE_NOT_ALLOWED
+    // ⚠️ Map 반환이라 Jackson SNAKE_CASE 미적용 → 키를 camelCase 리터럴로 직접 작성 (기존 errorCode 컨벤션과 일치)
+    @ExceptionHandler(DeviceNotAllowedException::class)
+    fun handleDeviceNotAllowed(e: DeviceNotAllowedException): ResponseEntity<Map<String, String>> {
+        logger.warn("[Error] 403 Device Not Allowed: ${e.deviceStatus} - ${e.message}")
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+            .body(mapOf(
+                "error" to (e.message ?: "등록되지 않은 기기입니다"),
+                "errorCode" to "DEVICE_NOT_ALLOWED",
+                "deviceStatus" to e.deviceStatus
+            ))
     }
 }

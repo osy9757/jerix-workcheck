@@ -58,60 +58,109 @@ PPT slide 1~5(인증 설정 / 지도 / AND 결합)는 최근 리팩토링에서 
 
 ## 2. 구현 계획
 
-### 계획 A — A5 기기등록·IMEI 로그인 flow (메인, 8단계)
+### 계획 A — 기기 바인딩 (전 계층: DB / Server / App / Admin)
 
-데이터 → 백엔드 → 앱 → Admin 의존 체인 순서.
+> **확정 사양:** 유저당 APPROVED 기기 **정확히 1대**(재등록 시 교체) · 첫 기기 **자동 승인**, 이후 새 기기 **관리자 승인** · deviceId = **`flutter_udid`**(iOS Keychain UUID `synchronizable=false` 재설치 유지 / Android ANDROID_ID) · **얼굴인증 없음**.
+> 멀티에이전트로 4계층을 코드 그라운딩 설계 후 통합 검증 → 계층 간 계약 불일치 8건 교정 완료.
 
-| # | 작업 | 우선 | 레이어 | 규모 |
-|---|---|---|---|---|
-| G1 | `user_devices` 테이블 + Entity/Repository (status: PENDING/APPROVED/REJECTED) | P0 | DB | S |
-| G2 | 로그인 API에 deviceId 검증 + 자동등록 분기 + **403 errorCode 핸들러** | P0 | Backend | M |
-| G3 | 앱 deviceId 수집(`device_info_plus`) + 로그인 연동 + 접속허용 요청 | P0 | App | M |
-| G4 | 접속 허용 요청 API (앱→백엔드, PENDING row 생성) | P0 | Backend | S |
-| G5 | Admin 기기 승인 관리 화면 + API (목록/승인/거부) | P0 | Admin+BE | M |
-| G6 | 권한 동의 게이트 보강 (검증·주석화 위주) | P1 | App | S |
-| G7 | 온보딩 이벤트 모달 4종 (기존 DeviceAccessDialog 재사용) | P2 | App | S |
-| G8 | 접속 대기 화면 (slide 11) + 라우트 | P1 | App | S |
+#### 로그인 상태머신 (서버 `AuthService.login`, 자격검증 통과 후 deviceId 동봉)
+1. 유저의 APPROVED 기기 **없음**(첫 기기) → 이 deviceId를 APPROVED 자동등록 → 로그인 성공
+2. APPROVED 있고 deviceId **일치** → 로그인 성공
+3. APPROVED 있고 deviceId **불일치** → `403 DEVICE_NOT_ALLOWED`(deviceStatus=`NONE_MATCH`) → 앱이 "관리자 요청" 노출
+4. 요청 시 → 새 deviceId `PENDING` 등록 → 대기화면
+5. 관리자 **승인** → PENDING→APPROVED + 기존 APPROVED 폐기(REJECTED 강등, 교체)
+6. 관리자 **거부** → REJECTED, 접속 불가 안내
+- deviceId 가 null(구버전 앱) → 기기검증 스킵(점진 롤아웃)
 
-**권장 순서:** G1 → (G2+G4 백엔드 묶음) → (G3+G8+G7 앱 묶음) ‖ (G5 Admin 병렬) ‖ (G6 독립).
-G2 완료 시점에 앱의 기존 403 dead code가 비로소 동작함.
+#### 🔒 확정된 계층 간 계약 (통합검증 교정 결과)
+| 항목 | 확정 |
+|---|---|
+| 403 본문 키 | **camelCase 리터럴** `{error, errorCode:"DEVICE_NOT_ALLOWED", deviceStatus}` (Map 반환이라 Jackson snake 미적용 — 기존 `errorCode` 컨벤션과 일치) |
+| deviceStatus 값 | `NONE_MATCH` \| `PENDING` \| `REJECTED` |
+| Admin 목록 응답 | **직접 배열** `List<AdminDeviceResponse>` (presets 컨벤션) — Admin은 `response.data as List`로 파싱 |
+| DTO 필드명 | data class라 Jackson **snake_case** 적용 → `employee_name`, `requested_at`, `approved_at` 등. Admin `fromJson`은 `employee_name`(❌`name`) 사용 |
+| schema.sql | **단일안** — `requested_at`/`approved_at` 포함, `platform`/`model` 포함(관리자 표시용) |
+| device/request 바디 | `password` **포함**(4필드, 인사정보 재검증으로 무단 PENDING 방지) — 앱도 비번 전송 |
+| Repository | APPROVED 단건 = `findFirstByUserIdAndStatus`→`UserDevice?`, 목록 = `findByUserIdAndStatus`→`List` |
+| approve/reject 반환 | **단일 `AdminDeviceResponse` 객체**(클라가 즉시 행 갱신) |
+| DeviceStatus enum | 파일 1개만(`entity/DeviceStatus.kt`) |
 
-**착수 전 결정 필요:**
-- **자동승인 정책** — 첫 기기는 자동 승인(APPROVED)? 항상 관리자 승인 대기(PENDING)? (PPT slide 7의 a/b 분기)
+#### ① DB 계층
+- **`schema.sql`** — `user_devices` 신규 (ENUM 회피 `VARCHAR+CHECK`, uvm 패턴):
+  ```sql
+  CREATE TABLE user_devices (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_id VARCHAR(255) NOT NULL,           -- flutter_udid 불투명 식별자
+    status VARCHAR(16) NOT NULL DEFAULT 'PENDING'
+           CHECK (status IN ('PENDING','APPROVED','REJECTED')),
+    platform VARCHAR(16) CHECK (platform IS NULL OR platform IN ('IOS','ANDROID')),
+    model VARCHAR(100),
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    approved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, device_id)
+  );
+  -- 핵심 불변식: 유저당 APPROVED 1대 (부분 유니크 인덱스로 DB 강제)
+  CREATE UNIQUE INDEX uq_user_devices_one_approved ON user_devices (user_id) WHERE status='APPROVED';
+  CREATE INDEX idx_user_devices_status_requested ON user_devices (status, requested_at ASC);
+  CREATE INDEX idx_user_devices_user_status ON user_devices (user_id, status);
+  ```
+- **`entity/DeviceStatus.kt`** (신규) — `enum class DeviceStatus { PENDING, APPROVED, REJECTED }`
+- **`entity/UserDevice.kt`** (신규) — `@Enumerated(STRING) @Column(length=16)` (NAMED_ENUM 금지, validate 일치), `@ManyToOne(LAZY) User`, `@PreUpdate updatedAt`.
+- **`repository/UserDeviceRepository.kt`** (신규) — `findByUserIdAndDeviceId`, `findFirstByUserIdAndStatus`, `findByUserIdAndStatus`, `existsByUserIdAndStatus`, `findAllByStatusOrderByRequestedAtAsc`.
+- **`seed.sql`** — APPROVED(user1)/PENDING(user1 추가기기·user3)/REJECTED(user5)/0행(user2) 3상태 재현 + setval. ⚠️ seed device_id는 opaque라 실기기와 매칭 안 됨 → 차단/대기열/거부 재현 전용.
 
-#### G1 — 기기등록 DB
-- `schema.sql`에 `user_devices` 테이블: id, user_id FK, device_id, device_label?, status(PENDING/APPROVED/REJECTED), requested_at, decided_at, created/updated_at. UNIQUE(user_id, device_id).
-- 인덱스: (user_id, status), (status). status는 VARCHAR+CHECK (ENUM 회피 방침 일관).
-- `seed.sql`: user1=APPROVED, user3=PENDING, user5=0행 — 3가지 상태 재현.
-- `entity/UserDevice.kt`, `repository/UserDeviceRepository.kt` 신규.
+#### ② Server 계층 (Kotlin Spring Boot)
+- **`dto/request/AppLoginRequest.kt`** (수정) — `deviceId: String? = null` 추가(nullable, NotBlank 미부여).
+- **`service/AuthService.kt`** (수정) — `UserDeviceRepository` 주입, `login()` JWT 발급 직전 상태머신 1·2·3 삽입, `requestDeviceAccess()` 추가.
+- **`service/DeviceNotAllowedException.kt`** (신규) — `class DeviceNotAllowedException(val deviceStatus:String, message:String): RuntimeException(message)`.
+- **`config/GlobalExceptionHandler.kt`** (수정) — `@ExceptionHandler(DeviceNotAllowedException)` → 403, body `{error, errorCode:"DEVICE_NOT_ALLOWED", deviceStatus}`.
+- **`dto/request/DeviceAccessRequest.kt`** (신규) — companyCode, employeeId, password, deviceId (모두 NotBlank).
+- **`dto/response/DeviceAccessResponse.kt`** (신규) — `status, message`.
+- **`dto/response/AdminDeviceResponse.kt`** (신규) — id, userId, employeeId, employeeName, department?, deviceId, status, requestedAt, approvedAt, createdAt, updatedAt (JPQL new-constructor 투영).
+- **`controller/AuthController.kt`** (수정) — `POST /api/v1/auth/device/request`.
+- **`service/DeviceAdminService.kt`** (신규, `@Transactional`) — `listDevices(status?)`, `approve(id)`(**기존 APPROVED REJECTED 강등→flush→신규 APPROVED 전환** 순서로 부분유니크 인덱스 충돌 회피), `reject(id)`.
+- **`controller/AdminController.kt`** (수정) — `GET /admin/devices?status=`, `POST /admin/devices/{id}/approve`, `POST /admin/devices/{id}/reject`.
 
-#### G2 — 로그인 기기검증 + 403 핸들러
-- `AppLoginRequest.kt`에 `deviceId: String? = null`(점진 롤아웃).
-- `AuthService.login()`: 비번/active 검증 직후 deviceId 분기 — 미등록+기기0개→자동등록, APPROVED→통과, PENDING/REJECTED→`DeviceNotAllowedException`.
-- `GlobalExceptionHandler`에 403 핸들러 추가(errorCode `DEVICE_NOT_ALLOWED`, deviceStatus 포함) → 앱 403 분기 활성화.
+#### ③ App 계층 (Flutter)
+- **`pubspec.yaml`** (수정) — `flutter_udid: ^4.0.0` 추가 → `flutter pub get`.
+- **`lib/core/utils/device_id_provider.dart`** (신규, `@lazySingleton`) — `getDeviceId()`: SharedPreferences 캐시 → 없으면 `FlutterUdid.consistentUdid` → 캐시 저장. `build_runner`로 injection.config.dart 재생성.
+- **`lib/core/constants/api_constants.dart`** (수정) — `deviceRequest = '$apiPrefix/auth/device/request'`.
+- **`lib/features/auth/.../login_screen.dart`** (수정) — `_handleLogin` 전송맵에 `device_id` 추가; **기존 403 분기+DeviceAccessDialog(195-209)** 의 버튼을 `POST /auth/device/request` 호출 + 대기화면 이동으로 연결(현재 dead code 활성화); 'IMEI' 문구 → '기기 ID'.
+- **`lib/features/auth/.../device_waiting_screen.dart`** (신규) — 대기 안내 + [요청취소]→로그인복귀 / [재시도]→재로그인. screenutil, #2DDAA9.
+- **`lib/presentation/navigation/app_router.dart`** (수정) — `deviceWaiting='/device-waiting'` 라우트.
 
-#### G3 — 앱 deviceId 수집 + 연동
-- `device_info_plus` 추가, `DeviceIdProvider` 유틸(Android id / iOS identifierForVendor, SharedPreferences 캐시).
-- `login_screen` 전송 데이터에 device_id 추가. 403 시 DeviceAccessDialog → 실제 요청 API 호출 → 대기화면 이동.
+#### ④ Admin-Web 계층 (Flutter Web)
+- **`lib/models/models.dart`** (수정) — `DeviceRequest` 모델(`fromJson`: `employee_name`, `requested_at`, `approved_at`).
+- **`lib/services/api_service.dart`** (수정) — `getDeviceRequests({status})`(응답 `as List`), `approveDevice(id)`, `rejectDevice(id)`.
+- **`lib/pages/device_requests_page.dart`** (신규) — employees_page 패턴 미러. 컬럼: 사번/이름/기기ID/요청일/상태 + 승인·거부 버튼, 상태 필터, 액션 후 새로고침.
+- **`lib/pages/dashboard_page.dart`** (수정) — NavigationRail '기기 승인'(Icons.phone_android) + `_buildPage()` case 추가.
 
-#### G4 — 접속 허용 요청 API
-- `DeviceRequestRequest` DTO, `POST /auth/device/request` → 인사정보 검증 후 PENDING row 생성/멱등 갱신.
+#### API 엔드포인트 요약
+| Method | Path | 요청 | 응답 |
+|---|---|---|---|
+| POST | `/api/v1/auth/login` | + `device_id?` | 200 성공 / **403** `DEVICE_NOT_ALLOWED` |
+| POST | `/api/v1/auth/device/request` | company_code, employee_id, password, device_id | 200 `{status:"PENDING", message}` (멱등) |
+| GET | `/api/v1/admin/devices?status=` | status? (PENDING/APPROVED/REJECTED) | 200 `AdminDeviceResponse[]` |
+| POST | `/api/v1/admin/devices/{id}/approve` | — | 200 `AdminDeviceResponse` (+기존 교체) |
+| POST | `/api/v1/admin/devices/{id}/reject` | — | 200 `AdminDeviceResponse` |
 
-#### G5 — Admin 기기 승인 화면 + API
-- Backend: `GET/POST /admin/devices[...]` 목록/승인/거부.
-- Admin: `device_requests_page.dart`(employees_page 패턴 복제), api_service 메서드 3개, models DeviceRequest, dashboard NavigationRail 메뉴 추가.
+#### 빌드 순서
+1. **DB** — schema/엔티티/리포/seed → `docker compose down -v && up`(볼륨 리셋 필수, 안 하면 validate 실패)
+2. **Server** — 로그인 상태머신 + 403 핸들러 + device/request + admin devices API (이 시점에 앱 403 dead code 활성화)
+3. **App ∥ Admin** (병렬) — 앱 deviceId 수집/주입/대기화면 ‖ Admin 승인 화면
+4. **통합 E2E** — seed 상태로 전체 기동 시나리오 검증
 
-#### G6 — 권한 게이트 보강
-- 핵심 3권한(위치/카메라/블루투스)은 이미 실질 차단(`permission_dialog.dart:21` barrierDismissible:false) → 검증·주석화 위주.
-- WiFi skipCheck는 구단말 데드락 회피 의도 → 유지(주석 명확화). NFC는 런타임 권한 아님 → 게이트 제외(주석).
+#### E2E 검증 시나리오
+- 자동승인(기기0 유저 첫 로그인→APPROVED 1건) · 일치 재로그인 성공 · 불일치 403 차단 · 요청→PENDING→관리자 승인→교체→새 기기 로그인 성공·기존 기기 403 · 거부→REJECTED 차단 · 부분유니크 인덱스 음성테스트(APPROVED 2건 거부) · 구버전(device_id 없이) 호환
 
-#### G7 — 온보딩 이벤트 모달 4종
-- 신규 위젯 없이 `DeviceAccessDialog`(title/content/buttonText 주입) 재사용 + 문구 분기(정보불일치/기기등록안내/승인·불가/요청취소).
-
-#### G8 — 접속 대기 화면
-- `device_waiting_screen.dart` 신규 + `/device-waiting` 라우트. 요청 성공 시 진입, 재시도/요청취소 버튼. (폴링·푸시는 범위 밖, 수동 재시도 — MVP)
-
----
+#### ✅ 정책 확정 (2026-06-07)
+1. **자동승인 엣지 → 옵션A 확정**: 새 기기(row 없음)만 자동 APPROVED. 이미 `REJECTED`/`PENDING` 이력이 있는 device_id는 자동승급 제외 → 계속 403(deviceStatus=REJECTED/PENDING). "거부"의 의미 보존.
+2. **기존 APPROVED 폐기 → REJECTED 강등 확정** (이력 보존, 부분유니크 인덱스 안전).
+3. **거부 기기 재요청 → 허용 확정** (REJECTED→PENDING 되돌림, 관리자 재판단).
+4. **Admin 기기 API 인증 → MVP 비인증 확정** (현 admin 전체 비인증과 일관). ⚠️ 기기 승인은 대리방지 핵심 게이트라 무방비 노출 → v2에서 인터셉터 확장 권고(admin_web은 이미 토큰 첨부 가능).
 
 ### 계획 B — A2/A3 잔여 갭 (근무지 제외)
 
@@ -136,12 +185,17 @@ G2 완료 시점에 앱의 기존 403 dead code가 비로소 동작함.
 | # | 항목 | 결정 |
 |---|---|---|
 | 1 | A1 근무지 다중장소 모델 | **폐기 확정** — 현행 user당 단일세트 유지, 계획 제외 |
-| 2 | A5 기기 자동승인 정책 | **미정** — 착수 전 결정 필요 (첫 기기 자동승인 vs 항상 PENDING) |
-| 3 | A3 앱 지도 위치선택 | **미정** — 범위 확인 필요 (좌표등록은 Admin 담당) |
+| 2 | A5 기기 개수 | **유저당 1대 확정** (2026-06-07) — 재등록 시 교체 |
+| 3 | A5 기기 승인 정책 | **확정** (2026-06-07) — 첫 기기 자동 승인, 이후 새 기기는 관리자 승인 |
+| 4 | A5 deviceId 수집 | **확정** — `flutter_udid`(iOS Keychain UUID 재설치 유지 / Android ANDROID_ID), 얼굴인증 없음 |
+| 5 | A5 자동승인 엣지 | **확정** — 옵션A(REJECTED/PENDING 이력 기기는 자동승급 제외, 새 기기만 자동승인) |
+| 6 | A5 기존기기 폐기 | **확정** — REJECTED 강등(교체) |
+| 7 | A5 Admin API 인증 | **MVP 비인증 확정** (현행 일관, v2 인증 확장) |
+| 8 | A3 앱 지도 위치선택 | **미정** — 범위 확인 필요 (좌표등록은 Admin 담당) |
 
 ## 4. 진행 상태
 
 - [x] A2-QR export PNG 다운로드 — *본 작업*
 - [x] A2-NFC 세기 안내문구 — *본 작업*
 - [ ] A3-앱 지도 위치선택 (결정 대기)
-- [ ] A5 기기등록·IMEI flow G1~G8 (자동승인 정책 결정 후 착수)
+- [ ] A5 기기 바인딩 (전 계층) — **계획·정책 전부 확정, 착수 대기**. 순서: DB → Server → (App ∥ Admin) → E2E

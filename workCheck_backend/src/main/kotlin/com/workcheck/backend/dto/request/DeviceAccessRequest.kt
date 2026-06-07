@@ -2,8 +2,9 @@ package com.workcheck.backend.dto.request
 
 import jakarta.validation.constraints.NotBlank
 
-// 앱 로그인 요청 DTO
-data class AppLoginRequest(
+// 기기 접근 요청 DTO (POST /api/v1/auth/device/request)
+// 인사정보 + 비번 재검증으로 무단 PENDING 생성 방지 → 4필드 모두 필수
+data class DeviceAccessRequest(
     @field:NotBlank
     val companyCode: String,
 
@@ -13,6 +14,6 @@ data class AppLoginRequest(
     @field:NotBlank
     val password: String,
 
-    // 기기 식별자 (flutter_udid). nullable + NotBlank 미부여 → 구버전 앱 호환(null 이면 기기검증 스킵)
-    val deviceId: String? = null
+    @field:NotBlank
+    val deviceId: String
 )

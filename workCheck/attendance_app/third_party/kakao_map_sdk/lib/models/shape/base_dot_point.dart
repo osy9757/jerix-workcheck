@@ -33,7 +33,12 @@ sealed class _BaseDotPoint extends BasePoint {
 
   @override
   Map<String, dynamic> toMessageable([bool isHole = false]) {
-    final payload = <String, dynamic>{};
+    // [수정] 네이티브 asDotPoints 가 요구하는 판별자 필드 추가:
+    // type(1=DotPoints), dotType(0=원/1=사각형). 누락 시 Kotlin 의 !! 에서 NPE 발생.
+    final payload = <String, dynamic>{
+      "type": type,
+      "dotType": dotType.value,
+    };
     if (!isHole) {
       payload["basePoint"] = basePoint.toMessageable();
       payload["holes"] = _holes.map((e) => e.toMessageable(true)).toList();

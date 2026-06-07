@@ -61,4 +61,14 @@ class RectanglePoint extends _BaseDotPoint {
 
   @override
   PointShapeType get dotType => PointShapeType.rectangle;
+
+  @override
+  Map<String, dynamic> toMessageable([bool isHole = false]) {
+    // [수정] 사각형 직렬화: width/height/clockwise 추가 (네이티브 DotPoints.fromRectangle 용)
+    final payload = super.toMessageable(isHole);
+    payload["width"] = width;
+    payload["height"] = height;
+    payload["clockwise"] = clockwise;
+    return payload;
+  }
 }

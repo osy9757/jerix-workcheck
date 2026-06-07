@@ -149,6 +149,17 @@ mixin OverlayManager {
     int zOrder = RouteController.defaultZOrder,
   });
 
+  /// 기본 ShapeLayer([shapeLayer], vector_layer_0)가 네이티브에 실제로 생성되도록
+  /// 보장한 뒤 반환합니다(멱등).
+  ///
+  /// 기본 ShapeLayer는 [_initalizeOverlayController]에서 Dart 객체로만 만들어지고
+  /// 네이티브 ShapeManager에는 생성되지 않으므로(LabelLayer와 달리 자동 생성 대상
+  /// 아님), 기본 레이어에 [ShapeController.addPolygonShape] 등을 호출하기 전에
+  /// 지도 준비 완료(onMapReady) 시점 등에서 1회 호출해야 합니다. 호출하지 않으면
+  /// 네이티브 addPolygonShape 핸들러에서 getLayer/getPolygonStyles null로 인한
+  /// NullPointerException이 발생합니다.
+  Future<ShapeController> ensureDefaultShapeLayer();
+
   /// [id]에 해당되는 LabelLayer([LabelController])를 가져옵니다.
   /// [id]에 해당되는 LabelLayer가 없으면, [null]를 반환합니다.
   LabelController? getLabelLayer(String id);

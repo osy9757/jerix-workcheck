@@ -386,6 +386,14 @@ class KakaoMapControllerImplement extends KakaoMapController {
   }
 
   @override
+  Future<ShapeController> ensureDefaultShapeLayer() async {
+    final layer = shapeLayer;
+    // 기본 ShapeLayer(vector_layer_0)를 네이티브에 1회 생성(멱등).
+    await layer.ensureCreated();
+    return layer;
+  }
+
+  @override
   Future<RouteController> addRouteLayer(
     String id, {
     int zOrder = ShapeController.defaultZOrder,

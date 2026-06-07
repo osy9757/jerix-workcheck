@@ -24,19 +24,42 @@ class ShapeController extends BaseShapeController {
   final Map<String, Polyline> _polylineShape = {};
   final Map<String, Polygon> _polygonShape = {};
 
+  /// 네이티브 ShapeLayer 생성 여부.
+  ///
+  /// 기본 ShapeLayer(vector_layer_0)는 [OverlayManager._initalizeOverlayController]
+  /// 에서 Dart 객체로만 생성되고 네이티브에는 만들어지지 않는다(LabelLayer와 달리
+  /// 네이티브 ShapeManager가 기본 레이어를 자동 생성하지 않음). 따라서 도형 추가 전
+  /// [ensureCreated]로 네이티브 레이어를 1회 생성해야 한다.
+  /// [addShapeLayer]로 만든 커스텀 레이어는 생성 시점에 이미 true로 표시된다.
+  bool _created = false;
+
   ShapeController._(
     this.channel,
     this.manager,
     this.id, {
     this.passType = defaultShapeLayerPass,
     this.zOrder = defaultZOrder,
-  }) : super._();
+    bool created = false,
+  })  : _created = created,
+        super._();
 
   Future<void> _createShapeLayer() async {
     await _invokeMethod("createShapeLayer", {
       "passType": passType.value,
       "zOrder": zOrder,
     });
+    _created = true;
+  }
+
+  /// 네이티브에 ShapeLayer가 생성되어 있지 않으면 1회 생성한다(멱등).
+  ///
+  /// 기본 ShapeLayer를 사용해 [addPolygonShape]/[addPolylineShape]를 호출하기 전,
+  /// 지도 준비 완료(onMapReady) 시점 등에서 호출하면 네이티브 ShapeManager에
+  /// 해당 레이어가 실제로 존재하게 되어, addPolygonShape 핸들러의
+  /// getLayer/getPolygonStyles null로 인한 NativeException(NPE)을 방지한다.
+  Future<void> ensureCreated() async {
+    if (_created) return;
+    await _createShapeLayer();
   }
 
   Future<void> _removeShapeLayer() async {

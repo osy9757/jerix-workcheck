@@ -86,6 +86,18 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   /// 마지막 원 스타일 업데이트 시간 (쓰로틀링용)
   DateTime _lastPulseUpdate = DateTime.now();
 
+  /// 펄스 페이드 단계별 PolygonStyle 캐시 (단계 인덱스 → 등록 완료 스타일)
+  ///
+  /// 매 틱마다 새 PolygonStyle을 만들면 네이티브에 스타일이 무한 누적되므로,
+  /// 페이드 값을 N단계로 양자화해 미리 등록한 스타일을 재사용한다.
+  final Map<int, PolygonStyle> _pulseStyleCache = {};
+
+  /// 펄스 페이드 양자화 단계 수
+  static const int _pulseFadeSteps = 12;
+
+  /// 마지막으로 적용한 펄스 페이드 단계 (동일 단계면 스타일 갱신 스킵)
+  int _lastPulseStep = -1;
+
   @override
   void initState() {
     super.initState();
@@ -271,9 +283,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
 
     try {
-      // 반경 원과 펄스 링은 동일한 ShapeLayer를 공유
+      // 반경 원과 펄스 링은 동일한 ShapeLayer를 공유.
+      // ⚠️ 기본 ShapeLayer(vector_layer_0)는 SDK가 Dart 객체로만 생성하고
+      // 네이티브 ShapeManager에는 만들지 않는다(마커용 LabelLayer와 달리 자동
+      // 생성 대상이 아님). 그래서 도형 추가 전 ensureDefaultShapeLayer()로
+      // 네이티브 레이어를 1회 생성해야 한다(멱등). 이를 생략하면 네이티브
+      // addPolygonShape 핸들러의 getLayer/getPolygonStyles가 null이 되어
+      // NullPointerException으로 도형 렌더가 실패한다.
+      // 폴리곤 스타일 등록/조회·추가 채널 모두 동일한 vector_layer_0 레이어를
+      // 가리키므로, 레이어가 실제 네이티브에 존재하면 NPE 없이 일관 동작한다.
       final shapeLayer =
-          _radiusShapeLayer ??= await controller.addShapeLayer('radius_circle');
+          _radiusShapeLayer ??= await controller.ensureDefaultShapeLayer();
 
       // 1) 정적 경계 원: 실제 출근 가능 거리(radius_m) 기준
       final boundaryStyle = PolygonStyle(
@@ -308,6 +328,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final polygon = _radiusPolygon;
     _pulseRingPolygon = null;
     _radiusPolygon = null;
+    // 펄스 단계 초기화 → 다음에 다시 추가되면 스타일이 재적용되도록
+    _lastPulseStep = -1;
     try {
       if (pulse != null) await pulse.remove();
       if (polygon != null) await polygon.remove();
@@ -334,19 +356,32 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final t = _pulseAnimation.value;
     final pulseRadius = radius * (0.2 + 0.8 * t);
 
-    // 커질수록 투명해지는 페이드 아웃 (0.30 → 0.04)
-    final fade = (1.0 - t).clamp(0.0, 1.0);
-    final fillAlpha = 0.04 + 0.18 * fade;
-    final strokeAlpha = 0.10 + 0.45 * fade;
-
-    final newStyle = PolygonStyle(
-      Colors.blue.withValues(alpha: fillAlpha),
-      strokeWidth: 2.0,
-      strokeColor: Colors.blue.withValues(alpha: strokeAlpha),
-    );
-    // 반경(맥동) + 스타일(페이드)을 함께 갱신
+    // 반경(맥동)은 매 틱 갱신 (changePosition은 우리 ShapeLayer 경로라 안전)
     pulse.changePosition(CirclePoint(pulseRadius, center));
-    pulse.changeStyle(newStyle);
+
+    // 페이드(스타일)는 단계로 양자화 → 캐시된 스타일 재사용 (네이티브 누적 방지)
+    final step = (t * (_pulseFadeSteps - 1)).round().clamp(0, _pulseFadeSteps - 1);
+    if (step == _lastPulseStep) return;
+    _lastPulseStep = step;
+    pulse.changeStyle(_pulseStyleForStep(step));
+  }
+
+  /// 페이드 단계(step)에 해당하는 펄스 PolygonStyle을 반환 (없으면 생성·캐시)
+  ///
+  /// step이 클수록(링이 커질수록) 더 투명해지는 파란 링.
+  PolygonStyle _pulseStyleForStep(int step) {
+    return _pulseStyleCache.putIfAbsent(step, () {
+      final t = step / (_pulseFadeSteps - 1);
+      // 커질수록 투명해지는 페이드 아웃 (중심에서 진하고 밖으로 갈수록 옅게)
+      final fade = (1.0 - t).clamp(0.0, 1.0);
+      final fillAlpha = 0.04 + 0.18 * fade;
+      final strokeAlpha = 0.10 + 0.45 * fade;
+      return PolygonStyle(
+        Colors.blue.withValues(alpha: fillAlpha),
+        strokeWidth: 2.0,
+        strokeColor: Colors.blue.withValues(alpha: strokeAlpha),
+      );
+    });
   }
 
   /// 지도 상태 동기화 (현위치 중심 또는 현위치+근무지 fit)

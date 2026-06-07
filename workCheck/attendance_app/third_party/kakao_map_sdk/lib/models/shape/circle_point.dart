@@ -60,4 +60,13 @@ class CirclePoint extends _BaseDotPoint {
 
   @override
   PointShapeType get dotType => PointShapeType.circle;
+
+  @override
+  Map<String, dynamic> toMessageable([bool isHole = false]) {
+    // [수정] 원 직렬화: radius/clockwise 추가 (네이티브 DotPoints.fromCircle 용)
+    final payload = super.toMessageable(isHole);
+    payload["radius"] = radius;
+    payload["clockwise"] = clockwise;
+    return payload;
+  }
 }

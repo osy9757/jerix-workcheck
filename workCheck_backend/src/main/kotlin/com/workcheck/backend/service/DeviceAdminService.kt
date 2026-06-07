@@ -52,6 +52,14 @@ class DeviceAdminService(
         return toResponse(target)
     }
 
+    // 기기 삭제: row 완전 제거 (예: 삭제 후 첫기기 자동 재바인딩 테스트). 없으면 예외.
+    fun delete(id: Long) {
+        if (!userDeviceRepository.existsById(id)) {
+            throw IllegalArgumentException("기기를 찾을 수 없습니다: $id")
+        }
+        userDeviceRepository.deleteById(id)
+    }
+
     // 기기 거부: REJECTED 전환 (접속 불가)
     fun reject(id: Long): AdminDeviceResponse {
         val target = userDeviceRepository.findById(id)

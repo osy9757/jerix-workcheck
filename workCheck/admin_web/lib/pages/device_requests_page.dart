@@ -90,6 +90,47 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
     }
   }
 
+  /// 기기 바인딩 삭제 처리 (확인 다이얼로그 후 실행, 성공 시 새로고침)
+  /// - 모든 상태(APPROVED/PENDING/REJECTED) 행에서 호출 가능
+  Future<void> _delete(int id) async {
+    // 삭제 확인 다이얼로그
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('기기 바인딩 삭제'),
+        content: const Text('이 기기 바인딩을 삭제하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('취소'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await widget.apiService.deleteDevice(id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('기기 바인딩을 삭제했습니다')),
+        );
+      }
+      _loadData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('삭제에 실패했습니다')),
+        );
+      }
+    }
+  }
+
   /// 상태 칩 (색상으로 PENDING/APPROVED/REJECTED 구분)
   Widget _statusChip(String status) {
     Color color;
@@ -228,39 +269,52 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
                           DataCell(_statusChip(dev.status)),
                           DataCell(Text(requested)),
                           DataCell(
-                            // PENDING 행에만 승인/거부 버튼 노출
-                            isPending
-                                ? Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      ElevatedButton(
-                                        onPressed: () => _approve(dev.id),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor:
-                                              const Color(0xFF2DDAA9),
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 12),
-                                          minimumSize: const Size(0, 36),
-                                        ),
-                                        child: const Text('승인'),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      OutlinedButton(
-                                        onPressed: () => _reject(dev.id),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.red,
-                                          side: const BorderSide(
-                                              color: Colors.red),
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 12),
-                                          minimumSize: const Size(0, 36),
-                                        ),
-                                        child: const Text('거부'),
-                                      ),
-                                    ],
-                                  )
-                                : const Text('-'),
+                            // PENDING 행: 승인/거부 + 삭제, 그 외: 삭제만
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // 승인/거부는 PENDING 행에서만 노출
+                                if (isPending) ...[
+                                  ElevatedButton(
+                                    onPressed: () => _approve(dev.id),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: const Color(0xFF2DDAA9),
+                                      foregroundColor: Colors.white,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12),
+                                      minimumSize: const Size(0, 36),
+                                    ),
+                                    child: const Text('승인'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  OutlinedButton(
+                                    onPressed: () => _reject(dev.id),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red,
+                                      side:
+                                          const BorderSide(color: Colors.red),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12),
+                                      minimumSize: const Size(0, 36),
+                                    ),
+                                    child: const Text('거부'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                                // 삭제는 모든 상태 행에서 노출 (빨강)
+                                ElevatedButton(
+                                  onPressed: () => _delete(dev.id),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12),
+                                    minimumSize: const Size(0, 36),
+                                  ),
+                                  child: const Text('삭제'),
+                                ),
+                              ],
+                            ),
                           ),
                         ]);
                       }).toList(),

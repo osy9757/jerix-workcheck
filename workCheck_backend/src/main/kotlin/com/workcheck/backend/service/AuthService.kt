@@ -120,17 +120,23 @@ class AuthService(
 
     // 기기 바인딩 상태머신 (자격검증 통과 후 호출)
     // deviceId 가 null 이면 구버전 앱 → 검증 스킵(점진 롤아웃)
+    // 신규 판정 규칙: '바인드된 기기(APPROVED) 유무' 로만 판단 (이력 기기 차단 옵션A 제거)
     private fun verifyDeviceBinding(user: User, deviceId: String?) {
         if (deviceId == null) return  // 구버전 호환: 기기검증 스킵
 
-        // 이 유저의 APPROVED 기기 조회 (유저당 1대)
+        // 이 유저의 APPROVED(바인드) 기기 조회 (유저당 1대)
         val approved = userDeviceRepository.findFirstByUserIdAndStatus(user.id, DeviceStatus.APPROVED)
 
         if (approved == null) {
-            // APPROVED 없음 → 이 device_id 의 기존 row 확인
+            // 바인드된 기기 없음 = 신규 계정/재바인딩 → 현재 기기를 자동 승인
             val existing = userDeviceRepository.findByUserIdAndDeviceId(user.id, deviceId)
-            if (existing == null) {
-                // 첫 기기 (row 없음) → 자동 APPROVED 생성 후 통과
+            if (existing != null) {
+                // 이 기기의 기존 row(PENDING/REJECTED 이력) 가 있으면 그 row 를 APPROVED 로 전환
+                existing.status = DeviceStatus.APPROVED
+                existing.approvedAt = OffsetDateTime.now()
+                userDeviceRepository.save(existing)
+            } else {
+                // 기존 row 없음 → 새 APPROVED row 생성
                 userDeviceRepository.save(
                     UserDevice(
                         user = user,
@@ -140,22 +146,19 @@ class AuthService(
                         approvedAt = OffsetDateTime.now()
                     )
                 )
-                return  // 통과
             }
-            // 옵션A: 이미 PENDING/REJECTED 이력이 있는 기기는 자동승급 금지 → 차단
-            throw DeviceNotAllowedException(
-                deviceStatus = existing.status.name,  // "PENDING" | "REJECTED"
-                message = "관리자 승인이 필요한 기기입니다"
-            )
+            return  // 통과
         }
 
-        // APPROVED 있음 → deviceId 일치 여부
+        // 바인드 기기 있음 → deviceId 일치 여부
         if (approved.deviceId == deviceId) {
             return  // 일치 → 통과
         }
         // 불일치 → 다른 기기로 로그인 시도 (대리 출퇴근 의심)
+        // 이 기기의 기존 row 상태로 앱 UI 분기 (없으면 NONE_MATCH)
+        val existing = userDeviceRepository.findByUserIdAndDeviceId(user.id, deviceId)
         throw DeviceNotAllowedException(
-            deviceStatus = "NONE_MATCH",
+            deviceStatus = existing?.status?.name ?: "NONE_MATCH",  // "PENDING" | "REJECTED" | "NONE_MATCH"
             message = "등록된 기기가 아닙니다. 관리자에게 기기 등록을 요청하세요"
         )
     }

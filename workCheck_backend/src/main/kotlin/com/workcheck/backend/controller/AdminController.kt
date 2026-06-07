@@ -41,4 +41,11 @@ class AdminController(
     fun rejectDevice(@PathVariable id: Long): ResponseEntity<AdminDeviceResponse> {
         return ResponseEntity.ok(deviceAdminService.reject(id))
     }
+
+    // 기기 삭제 — row 제거 후 {"deleted":true} 반환 (MVP 비인증)
+    @DeleteMapping("/devices/{id}")
+    fun deleteDevice(@PathVariable id: Long): ResponseEntity<Map<String, Boolean>> {
+        deviceAdminService.delete(id)
+        return ResponseEntity.ok(mapOf("deleted" to true))
+    }
 }

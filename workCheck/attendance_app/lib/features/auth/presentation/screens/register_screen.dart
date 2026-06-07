@@ -8,6 +8,7 @@ import '../../../../core/di/injection.dart';
 import '../../../../core/utils/device_id_provider.dart';
 import '../../data/datasources/local/auth_local_datasource.dart';
 import '../../../../presentation/common_widgets/app_text_field.dart';
+import '../../../../presentation/common_widgets/device_access_dialog.dart';
 import '../../../../presentation/common_widgets/secure_number_pad.dart';
 
 /// 보안 키패드에서 현재 활성화된 입력 필드를 구분하는 enum
@@ -144,7 +145,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (!mounted) return;
-      // 가입 성공 직후 입력 정보로 즉시 자동 로그인 시도
+      // PPT 안내: 기기 ID 등록 안내 다이얼로그 1회 노출 (자동로그인 직전)
+      // 자동 로그인 시 첫 기기로 자동 바인딩되므로, 그 전에 안내 문구만 표시
+      await DeviceAccessDialog.show(
+        context: context,
+        title: '기기 등록 안내',
+        content: '접속이 허용된 기기 여부를 확인을 위해\n사용자의 휴대폰 기기 ID를 등록합니다.',
+        buttonText: '확인',
+        onButtonPressed: () => Navigator.of(context).pop(),
+      );
+
+      if (!mounted) return;
+      // 가입 성공 직후 입력 정보로 즉시 자동 로그인 시도 (로그인이 기기 바인딩 담당)
       await _autoLogin(
         companyCode: companyCode,
         employeeId: employeeId,

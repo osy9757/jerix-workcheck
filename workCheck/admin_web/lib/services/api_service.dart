@@ -141,6 +141,13 @@ class ApiService {
     return DeviceRequest.fromJson(response.data as Map<String, dynamic>);
   }
 
+  /// 기기 바인딩 삭제 (DELETE /admin/devices/{id})
+  /// - 모든 상태(APPROVED/PENDING/REJECTED)에서 삭제 가능
+  /// - 응답 본문 없음 (204 No Content)
+  Future<void> deleteDevice(int id) async {
+    await _dio.delete('/admin/devices/$id');
+  }
+
   // --- 유저 인증 method (5-enum) ---
 
   /// 유저의 5개 method 전체 조회

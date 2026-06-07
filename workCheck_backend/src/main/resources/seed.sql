@@ -171,15 +171,15 @@ INSERT INTO verification_presets (id, name, method_type, config_data, memo) VALU
 -- 7. 기기 바인딩 시드 (3상태 재현 — 대리 출퇴근 방지 테스트용)
 -- ============================================
 -- ⚠️ device_id 는 flutter_udid 불투명 식별자라 실기기와 매칭 안 됨 → 차단/대기열/거부 재현 전용.
---   * user1: APPROVED 1대 + PENDING 1대 (불일치 차단 + 추가요청 대기 재현)
---   * user3: PENDING 1대 (관리자 승인 대기열 재현)
---   * user5: REJECTED 1대 (거부 차단 + 재요청 재현)
+-- 신규 판정 규칙(바인드 기기 유무)에 맞춘 재구성. 유저당 APPROVED 1행만(부분 유니크 위반 방지).
+--   * user1: APPROVED 1대 + PENDING 1대 + REJECTED 1대 (불일치 차단 + 대기 + 거부 3상태 재현)
+--   * user3: APPROVED 1대 (삭제→첫기기 자동 재바인딩 테스트용)
 --   * user2: row 없음 (첫 기기 자동 승인 재현)
 INSERT INTO user_devices (id, user_id, device_id, status, platform, model, requested_at, approved_at) VALUES
     (1, 1, 'SEED-APPROVED-DEVICE-USER1', 'APPROVED', 'ANDROID', 'Galaxy S23',  NOW(), NOW()),
     (2, 1, 'SEED-PENDING-DEVICE-USER1',  'PENDING',  'IOS',     'iPhone 15',   NOW(), NULL),
-    (3, 3, 'SEED-PENDING-DEVICE-USER3',  'PENDING',  'ANDROID', 'Pixel 8',     NOW(), NULL),
-    (4, 5, 'SEED-REJECTED-DEVICE-USER5', 'REJECTED', 'IOS',     'iPhone 14',   NOW(), NULL);
+    (3, 1, 'SEED-REJECTED-DEVICE-USER1', 'REJECTED', 'ANDROID', 'Galaxy S22',  NOW(), NULL),
+    (4, 3, 'SEED-APPROVED-DEVICE-USER3', 'APPROVED', 'ANDROID', 'Pixel 8',     NOW(), NOW());
 
 -- ============================================
 -- 8. 시퀀스 리셋

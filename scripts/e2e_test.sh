@@ -80,41 +80,40 @@ req PUT "/verification-presets/$PID" '{"name":"E2E수정","method_type":"NFC","c
 req DELETE "/verification-presets/$PID" '' "$ATOKEN"; { [ "$STATUS" = "204" ] || [ "$STATUS" = "200" ]; } && ok "D5 프리셋 삭제" || no "D5 프리셋 삭제"
 req POST /verification-presets '{"name":"","method_type":"NFC","config_data":{}}' "$ATOKEN"; es "D6 프리셋 빈이름 400" 400
 
-echo "=== E. 신규 기기 바인딩 ==="
-# E1 첫 기기 자동승인 (user2=emp12, seed row 없음)
+echo "=== E. 기기 바인딩 (신규판정=바인드기기 유무) ==="
+# 신규 seed: user1(emp11)=APPROVED/PENDING/REJECTED 3행, user3(emp21)=APPROVED 1행, user2(emp12)=무행
+# E1 신규(바인드 기기 없음) 자동승인 — user2(emp12)
 req POST /auth/login '{"company_code":"jerix","employee_id":"12","password":"1111","device_id":"E2E-NEW-USER2"}'
-es "E1 첫기기 자동승인 로그인" 200
+es "E1 바인드기기 없음→자동승인" 200
 # E2 동일 기기 재로그인 통과
 req POST /auth/login '{"company_code":"jerix","employee_id":"12","password":"1111","device_id":"E2E-NEW-USER2"}'
 es "E2 동일기기 재로그인" 200
-# E3 user1 불일치 기기 → 403 NONE_MATCH (seed APPROVED=SEED-APPROVED-DEVICE-USER1)
-req POST /auth/login '{"company_code":"jerix","employee_id":"11","password":"1111","device_id":"E2E-WRONG-USER1"}'
+# E3 user1(APPROVED 보유) 미지기기 → 403 NONE_MATCH
+req POST /auth/login '{"company_code":"jerix","employee_id":"11","password":"1111","device_id":"E2E-UNKNOWN-USER1"}'
 DS=$(jget deviceStatus); ECC=$(jget errorCode)
-{ [ "$STATUS" = "403" ] && [ "$ECC" = "DEVICE_NOT_ALLOWED" ] && [ "$DS" = "NONE_MATCH" ]; } && ok "E3 불일치기기 403 NONE_MATCH" || no "E3 불일치기기 403 (st=$STATUS ec=$ECC ds=$DS)"
-# E4 user1 일치 기기 → 200
+{ [ "$STATUS" = "403" ] && [ "$ECC" = "DEVICE_NOT_ALLOWED" ] && [ "$DS" = "NONE_MATCH" ]; } && ok "E3 미지기기 403 NONE_MATCH" || no "E3 미지기기 403 (st=$STATUS ec=$ECC ds=$DS)"
+# E4 user1 승인기기 일치 → 200
 req POST /auth/login '{"company_code":"jerix","employee_id":"11","password":"1111","device_id":"SEED-APPROVED-DEVICE-USER1"}'
 es "E4 일치기기 로그인" 200
-# E5 user5(emp31) REJECTED 기기 → 403 REJECTED
-req POST /auth/login '{"company_code":"jerix","employee_id":"31","password":"1111","device_id":"SEED-REJECTED-DEVICE-USER5"}'
+# E5 user1 REJECTED 기기(승인기기 공존) → 403 REJECTED
+req POST /auth/login '{"company_code":"jerix","employee_id":"11","password":"1111","device_id":"SEED-REJECTED-DEVICE-USER1"}'
 DS=$(jget deviceStatus); { [ "$STATUS" = "403" ] && [ "$DS" = "REJECTED" ]; } && ok "E5 거부기기 403 REJECTED" || no "E5 거부기기 (st=$STATUS ds=$DS)"
-# E6 user3(emp21) PENDING 기기 → 403 PENDING
-req POST /auth/login '{"company_code":"jerix","employee_id":"21","password":"1111","device_id":"SEED-PENDING-DEVICE-USER3"}'
+# E6 user1 PENDING 기기(승인기기 공존) → 403 PENDING
+req POST /auth/login '{"company_code":"jerix","employee_id":"11","password":"1111","device_id":"SEED-PENDING-DEVICE-USER1"}'
 DS=$(jget deviceStatus); { [ "$STATUS" = "403" ] && [ "$DS" = "PENDING" ]; } && ok "E6 대기기기 403 PENDING" || no "E6 대기기기 (st=$STATUS ds=$DS)"
-# E7 접속허용 요청 (user1 불일치기기) → 200 PENDING 생성
-req POST /auth/device/request '{"company_code":"jerix","employee_id":"11","password":"1111","device_id":"E2E-WRONG-USER1"}'
+# E7 접속허용 요청 (user1 미지기기) → 200 PENDING 생성
+req POST /auth/device/request '{"company_code":"jerix","employee_id":"11","password":"1111","device_id":"E2E-UNKNOWN-USER1"}'
 es "E7 device/request 200" 200
 # E8 admin 기기목록 PENDING 조회
 req GET '/admin/devices?status=PENDING' '' "$ATOKEN"
 { [ "$STATUS" = "200" ] && echo "$BODY" | grep -q device_id; } && ok "E8 admin PENDING 목록" || no "E8 admin PENDING 목록"
-# E9 admin 승인 → user1 PENDING(seed id=2, SEED-PENDING-DEVICE-USER1) 승인 + 기존 APPROVED 교체
-#    PENDING 목록에서 user_id=1 항목 id 추출
+# E9 admin 승인 → user1 SEED-PENDING-DEVICE-USER1 승인 + 기존 APPROVED(SEED-APPROVED) 교체
 APID=$(python3 -c "import json
 d=json.load(open('/tmp/e2e_body.txt'))
 rows=d if isinstance(d,list) else d.get('requests',[])
 print(next((r['id'] for r in rows if r.get('user_id')==1 and r.get('device_id')=='SEED-PENDING-DEVICE-USER1'), ''))" 2>/dev/null)
 if [ -n "$APID" ]; then
   req POST "/admin/devices/$APID/approve" '' "$ATOKEN"; es "E9 admin 승인" 200
-  # E10 교체 확인: 새 기기 로그인 200 / 기존(SEED-APPROVED) 403
   req POST /auth/login '{"company_code":"jerix","employee_id":"11","password":"1111","device_id":"SEED-PENDING-DEVICE-USER1"}'
   es "E10a 승인된 새기기 로그인" 200
   req POST /auth/login '{"company_code":"jerix","employee_id":"11","password":"1111","device_id":"SEED-APPROVED-DEVICE-USER1"}'
@@ -122,15 +121,27 @@ if [ -n "$APID" ]; then
 else
   no "E9 admin 승인 (PENDING id 추출 실패)"
 fi
-# E11 admin 거부 → user3 PENDING(SEED-PENDING-DEVICE-USER3) 거부
+# E11 admin 거부 → user1 E2E-UNKNOWN-USER1 PENDING 거부
 req GET '/admin/devices?status=PENDING' '' "$ATOKEN"
 RPID=$(python3 -c "import json
 d=json.load(open('/tmp/e2e_body.txt'))
 rows=d if isinstance(d,list) else d.get('requests',[])
-print(next((r['id'] for r in rows if r.get('device_id')=='SEED-PENDING-DEVICE-USER3'), ''))" 2>/dev/null)
+print(next((r['id'] for r in rows if r.get('device_id')=='E2E-UNKNOWN-USER1'), ''))" 2>/dev/null)
 if [ -n "$RPID" ]; then
   req POST "/admin/devices/$RPID/reject" '' "$ATOKEN"; es "E11 admin 거부" 200
 else no "E11 admin 거부 (PENDING id 추출 실패)"; fi
+# E12 admin 삭제 → user3 SEED-APPROVED-DEVICE-USER3 삭제 후, user3 새 기기 로그인 시 자동 재바인딩
+req GET '/admin/devices?status=APPROVED' '' "$ATOKEN"
+DELID=$(python3 -c "import json
+d=json.load(open('/tmp/e2e_body.txt'))
+rows=d if isinstance(d,list) else d.get('requests',[])
+print(next((r['id'] for r in rows if r.get('device_id')=='SEED-APPROVED-DEVICE-USER3'), ''))" 2>/dev/null)
+if [ -n "$DELID" ]; then
+  req DELETE "/admin/devices/$DELID" '' "$ATOKEN"; es "E12a admin 기기 삭제" 200
+  # 삭제 후 user3(emp21)는 바인드기기 없음 → 새 기기 자동 재바인딩
+  req POST /auth/login '{"company_code":"jerix","employee_id":"21","password":"1111","device_id":"E2E-AFTER-DELETE-USER3"}'
+  es "E12b 삭제후 새기기 자동 재바인딩" 200
+else no "E12 admin 삭제 (APPROVED id 추출 실패)"; fi
 
 echo
 echo "==================== 결과 ===================="

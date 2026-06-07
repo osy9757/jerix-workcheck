@@ -64,8 +64,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
 
-  /// 반경 원 도형 (KakaoMap ShapeLayer)
+  /// 반경 원 도형 (KakaoMap ShapeLayer) - 출근 가능 거리(radius_m) 경계, 정적
   Polygon? _radiusPolygon;
+
+  /// 하트비트 펄스 링 도형 - 중심에서 radius_m까지 맥동(커졌다 작아짐 + 페이드)
+  Polygon? _pulseRingPolygon;
+
+  /// 반경 원/펄스 링을 그릴 ShapeLayer (생성 후 재사용)
+  ShapeController? _radiusShapeLayer;
 
   /// 현위치 / 출근지 마커
   Poi? _currentLocationPoi;
@@ -83,13 +89,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   @override
   void initState() {
     super.initState();
+    // 하트비트 펄스: 0→1 반복(reverse 없음) → 링이 밖으로 퍼졌다가 다시 중심에서 시작
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2000),
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
     _pulseAnimation = CurvedAnimation(
       parent: _pulseController,
-      curve: Curves.easeInOut,
+      curve: Curves.easeOut,
     )..addListener(_onPulseUpdate);
     _loadUserInfo();
     _loadLocationInfo();
@@ -245,6 +252,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   /// GPS 허용 반경 파란색 원 추가 (KakaoMap ShapeLayer)
+  ///
+  /// 두 도형을 그린다:
+  /// - `_radiusPolygon`: 출근 가능 거리(radius_m) 경계를 나타내는 정적 파란 원
+  /// - `_pulseRingPolygon`: 중심에서 radius_m까지 맥동하는 하트비트 펄스 링
   Future<void> _addRadiusCircle(KakaoMapController controller) async {
     final radius = _gpsRadiusMeters;
     final attendanceLatLng = _attendanceLatLng;
@@ -252,23 +263,40 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await _removeRadiusCircle();
       return;
     }
-    // 이미 추가된 경우 스킵
+
+    // 이미 추가된 경우 위치/반경만 갱신
     if (_radiusPolygon != null) {
       await _radiusPolygon!.changePosition(CirclePoint(radius, attendanceLatLng));
       return;
     }
 
     try {
-      final shapeLayer = await controller.addShapeLayer('radius_circle');
-      final style = PolygonStyle(
-        Colors.blue.withValues(alpha: 0.2),
-        strokeWidth: 1.0,
-        strokeColor: Colors.blue.withValues(alpha: 0.4),
+      // 반경 원과 펄스 링은 동일한 ShapeLayer를 공유
+      final shapeLayer =
+          _radiusShapeLayer ??= await controller.addShapeLayer('radius_circle');
+
+      // 1) 정적 경계 원: 실제 출근 가능 거리(radius_m) 기준
+      final boundaryStyle = PolygonStyle(
+        Colors.blue.withValues(alpha: 0.12),
+        strokeWidth: 1.5,
+        strokeColor: Colors.blue.withValues(alpha: 0.5),
       );
       _radiusPolygon = await shapeLayer.addPolygonShape(
         CirclePoint(radius, attendanceLatLng),
-        style,
+        boundaryStyle,
         id: 'gps_radius',
+      );
+
+      // 2) 하트비트 펄스 링: 초기엔 작은 반경에서 시작 (프레임마다 갱신)
+      final pulseStyle = PolygonStyle(
+        Colors.blue.withValues(alpha: 0.25),
+        strokeWidth: 2.0,
+        strokeColor: Colors.blue.withValues(alpha: 0.6),
+      );
+      _pulseRingPolygon = await shapeLayer.addPolygonShape(
+        CirclePoint(radius * 0.2, attendanceLatLng),
+        pulseStyle,
+        id: 'gps_pulse_ring',
       );
     } catch (e) {
       debugPrint('[KakaoMap] 반경 원 추가 오류: $e');
@@ -276,33 +304,49 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   }
 
   Future<void> _removeRadiusCircle() async {
+    final pulse = _pulseRingPolygon;
     final polygon = _radiusPolygon;
-    if (polygon == null) return;
+    _pulseRingPolygon = null;
     _radiusPolygon = null;
     try {
-      await polygon.remove();
+      if (pulse != null) await pulse.remove();
+      if (polygon != null) await polygon.remove();
     } catch (e) {
       debugPrint('[KakaoMap] 반경 원 제거 오류: $e');
     }
   }
 
-  /// 펄스 애니메이션 업데이트 (opacity 변화, ~10fps 쓰로틀링)
+  /// 하트비트 펄스 애니메이션 업데이트 (~10fps 쓰로틀링)
+  ///
+  /// 펄스 링이 중심(radius_m * 0.2)에서 경계(radius_m)까지 커지면서
+  /// 동시에 투명해지도록(페이드 아웃) 갱신 → 심장 박동처럼 퍼지는 효과.
   void _onPulseUpdate() {
     final now = DateTime.now();
     if (now.difference(_lastPulseUpdate).inMilliseconds < 100) return;
     _lastPulseUpdate = now;
 
-    final polygon = _radiusPolygon;
-    if (polygon == null) return;
+    final pulse = _pulseRingPolygon;
+    final radius = _gpsRadiusMeters;
+    final center = _attendanceLatLng;
+    if (pulse == null || radius == null || center == null) return;
 
-    // opacity 범위: 0.08 ~ 0.25
-    final opacity = 0.08 + 0.17 * _pulseAnimation.value;
+    // 애니메이션 값(0~1) → 펄스 링 반경: radius_m의 20% ~ 100%
+    final t = _pulseAnimation.value;
+    final pulseRadius = radius * (0.2 + 0.8 * t);
+
+    // 커질수록 투명해지는 페이드 아웃 (0.30 → 0.04)
+    final fade = (1.0 - t).clamp(0.0, 1.0);
+    final fillAlpha = 0.04 + 0.18 * fade;
+    final strokeAlpha = 0.10 + 0.45 * fade;
+
     final newStyle = PolygonStyle(
-      Colors.blue.withValues(alpha: opacity),
-      strokeWidth: 1.0,
-      strokeColor: Colors.blue.withValues(alpha: opacity + 0.15),
+      Colors.blue.withValues(alpha: fillAlpha),
+      strokeWidth: 2.0,
+      strokeColor: Colors.blue.withValues(alpha: strokeAlpha),
     );
-    polygon.changeStyle(newStyle);
+    // 반경(맥동) + 스타일(페이드)을 함께 갱신
+    pulse.changePosition(CirclePoint(pulseRadius, center));
+    pulse.changeStyle(newStyle);
   }
 
   /// 지도 상태 동기화 (현위치 중심 또는 현위치+근무지 fit)
@@ -341,6 +385,33 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await _updateMarkerScaleForCurrentZoom(controller);
     } catch (e) {
       debugPrint('[KakaoMap] 지도 동기화 오류: $e');
+    }
+  }
+
+  /// 재중심(recenter) - 지도를 드래그해 이동한 뒤 현재 위치를 다시 중앙으로
+  ///
+  /// PPT slide3 B 버튼. 출근지 마커가 있으면 현위치+출근지를 함께 보이도록 fit,
+  /// 없으면 현위치를 중앙에 둔다. 기존 카메라 이동 패턴(_syncMapIfReady) 재사용.
+  Future<void> _recenterMap() async {
+    final controller = _mapController;
+    final currentLocation = _currentLatLng;
+    if (controller == null || currentLocation == null) return;
+
+    try {
+      final attendanceLatLng = _usesGpsOnMap ? _attendanceLatLng : null;
+      if (attendanceLatLng != null) {
+        await _fitMapToMarkers(controller, currentLocation, attendanceLatLng);
+      } else {
+        await controller.moveCamera(
+          CameraUpdate.newCenterPosition(
+            currentLocation,
+            zoomLevel: _defaultMapZoomLevel,
+          ),
+        );
+      }
+      await _updateMarkerScaleForCurrentZoom(controller);
+    } catch (e) {
+      debugPrint('[KakaoMap] 재중심 오류: $e');
     }
   }
 
@@ -1040,6 +1111,29 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// 재중심(B) 버튼 - 현재 위치를 다시 지도 중앙으로 (my_location 아이콘)
+  Widget _buildRecenterButton() {
+    return Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 3,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: _recenterMap,
+        child: Container(
+          width: 40.w,
+          height: 40.w,
+          alignment: Alignment.center,
+          child: Icon(
+            Icons.my_location,
+            size: 22.w,
+            color: const Color(0xFF2DDAA9),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// 카카오맵 섹션 (출근지 + 현위치 마커, GPS 반경 원)
   Widget _buildMapSection() {
     return Center(
@@ -1058,23 +1152,34 @@ class _AttendanceScreenState extends State<AttendanceScreen>
               height: 230.h,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10.r),
-                child: KakaoMap(
-                  option: KakaoMapOption(
-                    position: _currentLatLng ??
-                        _attendanceLatLng ??
-                        _fallbackMapPosition,
-                    zoomLevel: _defaultMapZoomLevel,
-                  ),
-                  onMapReady: (controller) {
-                    _mapController = controller;
-                    _setupMapMarkers(controller);
-                  },
-                  onCameraMoveEnd: (position, gestureType) {
-                    _updateMarkerScale(position.zoomLevel);
-                  },
-                  onMapError: (error) {
-                    debugPrint('[KakaoMap] 에러: $error');
-                  },
+                // 지도 위에 재중심(B) 버튼을 오버레이로 배치
+                child: Stack(
+                  children: [
+                    KakaoMap(
+                      option: KakaoMapOption(
+                        position: _currentLatLng ??
+                            _attendanceLatLng ??
+                            _fallbackMapPosition,
+                        zoomLevel: _defaultMapZoomLevel,
+                      ),
+                      onMapReady: (controller) {
+                        _mapController = controller;
+                        _setupMapMarkers(controller);
+                      },
+                      onCameraMoveEnd: (position, gestureType) {
+                        _updateMarkerScale(position.zoomLevel);
+                      },
+                      onMapError: (error) {
+                        debugPrint('[KakaoMap] 에러: $error');
+                      },
+                    ),
+                    // PPT slide3 B 버튼: 현재 위치 재중심
+                    Positioned(
+                      right: 8.w,
+                      bottom: 8.h,
+                      child: _buildRecenterButton(),
+                    ),
+                  ],
                 ),
               ),
             ),

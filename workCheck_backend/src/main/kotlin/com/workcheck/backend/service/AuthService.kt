@@ -98,13 +98,13 @@ class AuthService(
 
     // 자격 검증 공통 로직 (회사/사번/비번/활성) → User 반환
     private fun authenticate(companyCode: String, employeeId: String, password: String): User {
-        // 1. 회사코드로 회사 찾기
+        // 1. 회사코드로 회사 찾기 (PPT 지정 문구: 인사정보 불일치는 사유 노출 없이 통일)
         val company = companyRepository.findByCode(companyCode)
-            ?: throw IllegalArgumentException("회사를 찾을 수 없습니다")
+            ?: throw IllegalArgumentException("입력한 정보가 일치하지 않습니다. 인사부서에 문의하세요")
 
-        // 2. 회사 + 사원번호로 유저 찾기
+        // 2. 회사 + 사원번호로 유저 찾기 (PPT 지정 문구: 회사코드 미발견과 동일 문구)
         val user = userRepository.findByCompanyIdAndEmployeeId(company.id, employeeId)
-            ?: throw IllegalArgumentException("사원번호를 찾을 수 없습니다")
+            ?: throw IllegalArgumentException("입력한 정보가 일치하지 않습니다. 인사부서에 문의하세요")
 
         // 3. 비밀번호 검증 (BCrypt)
         if (!passwordEncoder.matches(password, user.passwordHash)) {

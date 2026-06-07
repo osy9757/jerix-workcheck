@@ -9,7 +9,7 @@ import '../../../../presentation/navigation/app_router.dart';
 /// 기기 접속 허용 요청을 보낸 뒤 표시되는 대기 안내 화면.
 /// - 인사 담당자의 승인을 기다리는 동안 노출
 /// - [요청취소] → 로그인 화면으로 복귀
-/// - [재시도] → 로그인 화면으로 복귀해 다시 로그인 시도
+/// - [접속하기] → 로그인 화면으로 복귀해 다시 로그인 시도
 class DeviceWaitingScreen extends StatelessWidget {
   const DeviceWaitingScreen({super.key});
 
@@ -47,9 +47,9 @@ class DeviceWaitingScreen extends StatelessWidget {
                 ),
               ),
               SizedBox(height: 32.h),
-              // 대기 제목
+              // 대기 제목 (PPT 원문)
               Text(
-                '접속 승인 대기 중',
+                '접속이 허용된 기기가 아닙니다.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
@@ -60,11 +60,11 @@ class DeviceWaitingScreen extends StatelessWidget {
                 ),
               ),
               SizedBox(height: 16.h),
-              // 대기 안내 본문
+              // 대기 안내 본문 (PPT 원문)
               Text(
-                '기기 접속 허용 요청이 접수되었습니다.\n'
-                '인사 담당자의 승인 후 로그인할 수 있습니다.\n\n'
-                '승인 완료 후 [재시도]를 눌러 다시 로그인해주세요.',
+                '접속 허용 요청에 대해서 인사 담당자의 확인 대기 중입니다.\n'
+                '잠시만 기다려 주시기 바랍니다.\n\n'
+                '대기가 길어지면 인사부서에 문의 하세요.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontWeight: FontWeight.w500,
@@ -75,7 +75,7 @@ class DeviceWaitingScreen extends StatelessWidget {
                 ),
               ),
               const Spacer(),
-              // 재시도 버튼 (승인 후 재로그인)
+              // 접속하기 버튼 (승인 후 재로그인, 동작 동일)
               SizedBox(
                 width: double.infinity,
                 height: 57.h,
@@ -90,7 +90,7 @@ class DeviceWaitingScreen extends StatelessWidget {
                     ),
                   ),
                   child: Text(
-                    '재시도',
+                    '접속하기',
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 18.sp,

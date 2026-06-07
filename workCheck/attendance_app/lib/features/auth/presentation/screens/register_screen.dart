@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/utils/device_id_provider.dart';
+import '../../data/datasources/local/auth_local_datasource.dart';
 import '../../../../presentation/common_widgets/app_text_field.dart';
 import '../../../../presentation/common_widgets/secure_number_pad.dart';
 
@@ -92,10 +94,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  /// 로컬 인증 저장소 (자동 로그인 토큰 저장용)
+  final AuthLocalDatasource _authLocal = getIt<AuthLocalDatasource>();
+
   /// 회원가입 처리
   ///
   /// 입력값 검증 후 서버에 회원가입 API를 호출.
-  /// 성공 시 스낵바로 알림 후 이전 화면으로 복귀.
+  /// 성공 시 입력한 인사정보로 즉시 자동 로그인하여 홈으로 진입.
   Future<void> _handleRegister() async {
     setState(() {
       _companyCodeError = null;
@@ -121,26 +126,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isLoading = true);
 
+    // 자동 로그인에 재사용할 입력값 (trim 처리)
+    final companyCode = _companyCodeController.text.trim();
+    final employeeId = _employeeIdController.text.trim();
+    final password = _passwordController.text;
+
     try {
       final dio = getIt<Dio>();
       await dio.post(
         ApiConstants.users,
         data: {
-          'company_code': _companyCodeController.text.trim(),
-          'employee_id': _employeeIdController.text.trim(),
-          'name': _employeeIdController.text.trim(), // MVP: 사원번호를 이름으로 사용
-          'password': _passwordController.text,
+          'company_code': companyCode,
+          'employee_id': employeeId,
+          'name': employeeId, // MVP: 사원번호를 이름으로 사용
+          'password': password,
         },
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('회원가입이 완료되었습니다.'),
-          backgroundColor: Color(0xFF2DDAA9),
-        ),
+      // 가입 성공 직후 입력 정보로 즉시 자동 로그인 시도
+      await _autoLogin(
+        companyCode: companyCode,
+        employeeId: employeeId,
+        password: password,
       );
-      context.pop();
     } on DioException catch (e) {
       if (!mounted) return;
       final message = e.response?.data?['error'] as String?
@@ -150,6 +159,67 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /// 가입 직후 자동 로그인
+  ///
+  /// 입력한 인사정보 + 기기 ID로 즉시 로그인 API 호출.
+  /// - 성공: 토큰/사용자 정보 저장 후 홈('/') 진입 (login_screen 저장 패턴 동일)
+  /// - 실패(예외/403 등): 로그인 화면으로 복귀 + 스낵바 안내
+  Future<void> _autoLogin({
+    required String companyCode,
+    required String employeeId,
+    required String password,
+  }) async {
+    try {
+      // 기기 식별자 조회 (기기 바인딩 검증용)
+      final deviceId = await getIt<DeviceIdProvider>().getDeviceId();
+
+      final dio = getIt<Dio>();
+      final response = await dio.post(
+        ApiConstants.login,
+        data: {
+          'company_code': companyCode,
+          'employee_id': employeeId,
+          'password': password,
+          'device_id': deviceId,
+        },
+      );
+
+      final data = response.data as Map<String, dynamic>;
+      final token = data['token'] as String;
+      final user = data['user'] as Map<String, dynamic>?;
+
+      // 토큰 + 사용자 정보 로컬 저장
+      await _authLocal.saveToken(token);
+      await _authLocal.saveCompanyCode(companyCode);
+      await _authLocal.saveEmployeeId(employeeId);
+      if (user != null && user['name'] != null) {
+        await _authLocal.saveUserName(user['name'] as String);
+      }
+
+      // 서버 활성 인증 방법 저장
+      final enabledMethods = (data['enabled_methods'] as List<dynamic>?)
+          ?.map((e) => e as String)
+          .toList();
+      if (enabledMethods != null) {
+        await _authLocal.saveEnabledMethods(enabledMethods);
+      }
+
+      if (!mounted) return;
+      // 자동 로그인 성공 → 홈으로 진입
+      context.go('/');
+    } catch (e) {
+      // 자동 로그인 실패: 기존처럼 로그인 화면으로 복귀
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('회원가입이 완료되었습니다. 로그인해주세요.'),
+          backgroundColor: Color(0xFF2DDAA9),
+        ),
+      );
+      context.pop();
     }
   }
 

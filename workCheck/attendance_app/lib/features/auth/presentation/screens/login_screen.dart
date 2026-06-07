@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -140,8 +142,9 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   ///
   /// 서버에 로그인 API 요청 후:
   /// - 성공: 토큰/사용자 정보 로컬 저장 후 홈으로 이동
+  /// - 400: 서버가 준 message(인사정보 불일치 등) 그대로 표시
   /// - 401: 비밀번호 오류 메시지 표시
-  /// - 403: 기기 접근 불가 다이얼로그 표시
+  /// - 403: 기기 접근 불가 (deviceStatus 값으로 분기)
   /// - 기타: 네트워크 오류 메시지 표시
   Future<void> _handleLogin() async {
     _clearErrors();
@@ -181,10 +184,6 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       final enabledMethods = (data['enabled_methods'] as List<dynamic>?)
           ?.map((e) => e as String)
           .toList();
-      // 진단 로그: 로그인 응답의 enabled_methods 원형
-      // ignore: avoid_print
-      print('[Login] response enabled_methods raw=${data['enabled_methods']} '
-          'parsed=$enabledMethods');
       if (enabledMethods != null) {
         await _authLocal.saveEnabledMethods(enabledMethods);
       }
@@ -199,27 +198,20 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       final message = e.response?.data?['error'] as String?;
 
       if (statusCode == 403) {
-        // 기기 접속 불가: 접속 허용 요청 안내 다이얼로그 표시
-        await DeviceAccessDialog.show(
-          context: context,
-          title: '접속이 허용된 기기가 아닙니다',
-          content: message ??
-              '사용자의 휴대폰 기기 ID가 접속이 허용된 기기가\n'
-                  '아니거나 다시 등록해야 하는 기기입니다.\n\n'
-                  '아래 접속 허용 요청을 하시면\n'
-                  '인사 담당자의 확인을 거쳐 접속할 수 있습니다.',
-          buttonText: '담당자에게 접속 허용 요청',
-          // 버튼 클릭 시 기기 접속 허용 요청 API 호출 후 대기화면 이동
-          onButtonPressed: () {
-            // 다이얼로그 먼저 닫고 요청 처리
-            Navigator.of(context).pop();
-            _requestDeviceAccess(
-              companyCode: companyCode,
-              employeeId: employeeId,
-              password: password,
-            );
-          },
+        // 기기 접속 불가: deviceStatus 값으로 분기 (NONE_MATCH / REJECTED / PENDING)
+        final deviceStatus = e.response?.data?['deviceStatus'] as String?;
+        await _handleDeviceForbidden(
+          deviceStatus: deviceStatus,
+          message: message,
+          companyCode: companyCode,
+          employeeId: employeeId,
+          password: password,
         );
+      } else if (statusCode == 400) {
+        // 잘못된 요청(인사정보 불일치 등): 서버가 준 message를 그대로 표시
+        setState(() {
+          _passwordError = message ?? '입력 정보를 다시 확인해주세요.';
+        });
       } else if (statusCode == 401) {
         // 비밀번호 불일치
         setState(() {
@@ -238,6 +230,82 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
         });
       }
     }
+  }
+
+  /// 403 기기 접속 불가 처리 (deviceStatus 값으로 분기)
+  ///
+  /// - NONE_MATCH: 등록 안 된 다른 기기 → 안내 + [담당자에게 접속 허용 요청] → 대기화면
+  /// - REJECTED: 거부된 기기 → 안내 + [접속 허용 요청] 재요청(REJECTED→PENDING) → 대기화면
+  /// - PENDING: 이미 승인 대기중 → 안내 후 바로 대기화면 이동(재요청 불필요)
+  /// - 누락/기타값: NONE_MATCH 경로로 폴백
+  Future<void> _handleDeviceForbidden({
+    required String? deviceStatus,
+    required String? message,
+    required String companyCode,
+    required String employeeId,
+    required String password,
+  }) async {
+    // 이미 승인 대기중: 안내 후 바로 대기화면으로 이동
+    if (deviceStatus == 'PENDING') {
+      await DeviceAccessDialog.show(
+        context: context,
+        title: '접속 허용 요청 대기 중',
+        content: message ?? '이미 접속 허용 요청이 승인 대기 중입니다.',
+        buttonText: '확인',
+        onButtonPressed: () {
+          // 다이얼로그 닫고 대기화면으로 이동 (재요청 버튼 없음)
+          Navigator.of(context).pop();
+          context.go(AppRoutes.deviceWaiting);
+        },
+      );
+      return;
+    }
+
+    // 거부된 기기: 재요청 허용 (REJECTED → PENDING)
+    if (deviceStatus == 'REJECTED') {
+      await DeviceAccessDialog.show(
+        context: context,
+        title: '접속이 허용된 기기가 아닙니다',
+        content: message ??
+            '접속이 거부된 기기입니다.\n\n'
+                '아래 접속 허용 요청을 하시면\n'
+                '인사 담당자의 확인을 거쳐 접속할 수 있습니다.',
+        buttonText: '접속 허용 요청',
+        onButtonPressed: () {
+          Navigator.of(context).pop();
+          // fire-and-forget: 내부에서 에러는 setState 로 처리
+          unawaited(_requestDeviceAccess(
+            companyCode: companyCode,
+            employeeId: employeeId,
+            password: password,
+          ));
+        },
+      );
+      return;
+    }
+
+    // NONE_MATCH 및 누락/기타값 폴백: 등록 안 된 기기 안내 + 접속 허용 요청
+    await DeviceAccessDialog.show(
+      context: context,
+      title: '접속이 허용된 기기가 아닙니다',
+      content: message ??
+          '사용자의 휴대폰 기기 ID가 접속이 허용된 기기가\n'
+              '아니거나 다시 등록해야 하는 기기입니다.\n\n'
+              '아래 접속 허용 요청을 하시면\n'
+              '인사 담당자의 확인을 거쳐 접속할 수 있습니다.',
+      buttonText: '담당자에게 접속 허용 요청',
+      // 버튼 클릭 시 기기 접속 허용 요청 API 호출 후 대기화면 이동
+      onButtonPressed: () {
+        // 다이얼로그 먼저 닫고 요청 처리
+        Navigator.of(context).pop();
+        // fire-and-forget: 내부에서 에러는 setState 로 처리
+        unawaited(_requestDeviceAccess(
+          companyCode: companyCode,
+          employeeId: employeeId,
+          password: password,
+        ));
+      },
+    );
   }
 
   /// 기기 접속 허용 요청 처리

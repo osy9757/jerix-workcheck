@@ -99,7 +99,8 @@ class PolygonStyle with KMessageable {
       "id": _id,
       // ignore: deprecated_member_use
       "color": color.value,
-      "strokeWidth": strokeWidth,
+      // iOS 네이티브가 UInt 를 기대하므로 정수로 직렬화 (double 전송 시 크래시)
+      "strokeWidth": strokeWidth.round(),
       // ignore: deprecated_member_use
       "strokeColor": strokeColor.value,
       "zoomLevel": zoomLevel,

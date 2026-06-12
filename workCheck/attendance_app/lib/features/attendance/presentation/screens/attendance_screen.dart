@@ -1187,7 +1187,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     // 단일 인증 방법별 아이콘 매핑
     final iconMap = {
       VerificationMethod.wifi: {
-        'on': 'assets/icons/WIFI_ON.svg',
+        // 실제 에셋 파일명은 WIFI_on.svg (대소문자 불일치 시 로드 실패)
+        'on': 'assets/icons/WIFI_on.svg',
         'off': 'assets/icons/WIFI_OFF.svg',
       },
       VerificationMethod.gps: {

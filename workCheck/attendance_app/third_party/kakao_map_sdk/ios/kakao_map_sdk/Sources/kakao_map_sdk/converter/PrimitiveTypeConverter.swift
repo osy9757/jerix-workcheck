@@ -4,20 +4,23 @@ func asBool(_ v: Any) -> Bool {
     v as! Bool
 }
 
+// Flutter StandardMessageCodec 은 Dart 숫자를 Int32/Int64/Double NSNumber 로 보내므로
+// 직접 캐스트(as!) 대신 NSNumber 경유 변환으로 타입 불일치 크래시를 방지한다.
+// (예: Dart double 1.5 → as! UInt 는 EXC_BREAKPOINT 트랩)
 func asFloat(_ v: Any) -> Float {
-    v as! Float
+    (v as! NSNumber).floatValue
 }
 
 func asDouble(_ v: Any) -> Double {
-    v as! Double
+    (v as! NSNumber).doubleValue
 }
 
 func asInt(_ v: Any) -> Int {
-    v as! Int
+    (v as! NSNumber).intValue
 }
 
 func asUInt(_ v: Any) -> UInt {
-    v as! UInt
+    UInt(bitPattern: (v as! NSNumber).intValue)
 }
 
 func asString(_ v: Any) -> String {

@@ -4,6 +4,7 @@ import 'verification_page.dart';
 import 'attendance_page.dart';
 import 'verification_presets_page.dart';
 import 'device_requests_page.dart';
+import 'employees_page.dart';
 
 /// 대시보드 - MVP 시연용 간략화 (인증 설정 + 인증 프리셋 + 출퇴근 기록)
 class DashboardPage extends StatefulWidget {
@@ -28,6 +29,9 @@ class _DashboardPageState extends State<DashboardPage> {
         return AttendancePage(apiService: widget.apiService);
       case 3:
         return DeviceRequestsPage(apiService: widget.apiService);
+      case 4:
+        // 직원 관리 — D3 가입 구조(사전 등록 직원만 가입 가능)의 등록 진입점
+        return EmployeesPage(apiService: widget.apiService);
       default:
         return VerificationPage(apiService: widget.apiService);
     }
@@ -108,6 +112,10 @@ class _DashboardPageState extends State<DashboardPage> {
               NavigationRailDestination(
                 icon: Icon(Icons.phone_android),
                 label: Text('기기 승인'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.people),
+                label: Text('직원 관리'),
               ),
             ],
           ),

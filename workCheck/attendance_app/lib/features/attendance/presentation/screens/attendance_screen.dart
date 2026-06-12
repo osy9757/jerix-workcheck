@@ -39,8 +39,27 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   static const double _baseMarkerSize = 40;
   static const int _defaultMapZoomLevel = 16;
 
+  // 현위치 원 반경(미터) 테스트 조정용 상수 — GPS 정확도가 없거나 범위를 벗어날 때 사용
+  static const double _currentCircleFallbackRadiusM = 30.0; // 정확도 미상 시 폴백 반경
+  static const double _currentCircleMinRadiusM = 15.0; // 너무 작아 안 보이는 것 방지
+  static const double _currentCircleMaxRadiusM = 60.0; // 너무 커서 화면을 덮는 것 방지
+
   KakaoMapController? _mapController;
   String _userName = '';
+
+  /// 현위치 GPS 정확도(미터) — 현위치 원 반경 계산에 사용
+  double? _currentAccuracyMeters;
+
+  /// 현위치 중심 원 도형 (GPS 정확도 기반, 메인 컬러)
+  Polygon? _currentCirclePolygon;
+
+  /// 출근지/현위치 마커 전용 LabelController.
+  ///
+  /// ⚠️ 실험적: CompetitionType.none + 높은 zOrder 로 기본맵 라벨 경쟁/LOD 컬링에서
+  /// 제외시켜 저줌·라벨 밀집 지역에서도 마커가 항상 렌더되도록 시도한다. 실기기 없이
+  /// 검증 불가하므로, 실패 시 Flutter 오버레이 마커 폴백으로 전환해야 한다
+  /// (아래 _markerStyle 주석 참조).
+  LabelController? _markerLayer;
 
   /// 현위치 주소 (역지오코딩 결과)
   String _currentAddress = '위치 확인 중...';
@@ -133,6 +152,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         ),
       );
       final latLng = LatLng(position.latitude, position.longitude);
+
+      // GPS 정확도(미터) 저장 → 현위치 원 반경 계산에 사용
+      _currentAccuracyMeters = position.accuracy;
 
       if (mounted) {
         setState(() => _currentLatLng = latLng);
@@ -338,6 +360,65 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
+  /// 현위치 중심 원 추가/갱신 (GPS 정확도 기반 동적 반경, 메인 컬러 #2DDAA9)
+  ///
+  /// 출근지 파란 반경 원(_addRadiusCircle)과 동일한 ShapeLayer 패턴을 따른다.
+  /// 반경은 GPS 정확도(미터)를 15~60m로 클램프(폴백 30m)하며, 출근지 파란 원과
+  /// 시각적으로 구분되도록 메인 컬러(#2DDAA9)를 사용한다. PPT 슬라이드3 A상태
+  /// (현위치 중심 원)를 충족한다.
+  Future<void> _upsertCurrentLocationCircle(
+    KakaoMapController controller,
+  ) async {
+    final center = _currentLatLng;
+    if (center == null) {
+      await _removeCurrentLocationCircle();
+      return;
+    }
+
+    // 정확도 기반 동적 반경 (없으면 폴백, 항상 min~max로 클램프)
+    final radius = (_currentAccuracyMeters ?? _currentCircleFallbackRadiusM)
+        .clamp(_currentCircleMinRadiusM, _currentCircleMaxRadiusM);
+
+    // 이미 추가된 경우 위치/반경만 갱신
+    if (_currentCirclePolygon != null) {
+      await _currentCirclePolygon!.changePosition(CirclePoint(radius, center));
+      return;
+    }
+
+    try {
+      // 출근지 원과 동일한 ShapeLayer 재사용 (네이티브 레이어 멱등 생성)
+      final shapeLayer =
+          _radiusShapeLayer ??= await controller.ensureDefaultShapeLayer();
+
+      // 메인 컬러 원: 출근지 파란 원과 색상으로 구분
+      const mainColor = Color(0xFF2DDAA9);
+      final style = PolygonStyle(
+        mainColor.withValues(alpha: 0.15),
+        strokeWidth: 1.5,
+        strokeColor: mainColor.withValues(alpha: 0.5),
+      );
+      _currentCirclePolygon = await shapeLayer.addPolygonShape(
+        CirclePoint(radius, center),
+        style,
+        id: 'current_location_circle',
+      );
+    } catch (e) {
+      debugPrint('[KakaoMap] 현위치 원 추가 오류: $e');
+    }
+  }
+
+  /// 현위치 원 제거 (위치 조회 실패/권한 거부 시 대비, dispose 외 호출처는 없음)
+  Future<void> _removeCurrentLocationCircle() async {
+    final polygon = _currentCirclePolygon;
+    if (polygon == null) return;
+    _currentCirclePolygon = null;
+    try {
+      await polygon.remove();
+    } catch (e) {
+      debugPrint('[KakaoMap] 현위치 원 제거 오류: $e');
+    }
+  }
+
   /// 하트비트 펄스 애니메이션 업데이트 (~10fps 쓰로틀링)
   ///
   /// 펄스 링이 중심(radius_m * 0.2)에서 경계(radius_m)까지 커지면서
@@ -398,16 +479,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       await _upsertCurrentLocationPoi(controller, currentLocation);
       if (token != _mapSyncToken) return;
 
+      // 현위치 원은 GPS 타겟 유무와 무관하게 항상 표시 (PPT A상태 충족)
+      await _upsertCurrentLocationCircle(controller);
+      if (token != _mapSyncToken) return;
+
       final attendanceLatLng = _usesGpsOnMap ? _attendanceLatLng : null;
       if (attendanceLatLng == null) {
+        // 출근지 마커/파란 반경 원만 제거(현위치 원은 유지)
         await _removeDestinationPoi();
         await _removeRadiusCircle();
-        await controller.moveCamera(
-          CameraUpdate.newCenterPosition(
-            currentLocation,
-            zoomLevel: _defaultMapZoomLevel,
-          ),
-        );
+        await _moveCameraCurrentCentered(controller, currentLocation, null);
         await _updateMarkerScaleForCurrentZoom(controller);
         return;
       }
@@ -416,7 +497,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       if (token != _mapSyncToken) return;
 
       await _addRadiusCircle(controller);
-      await _fitMapToMarkers(controller, currentLocation, attendanceLatLng);
+      await _moveCameraCurrentCentered(
+        controller,
+        currentLocation,
+        attendanceLatLng,
+      );
       await _updateMarkerScaleForCurrentZoom(controller);
     } catch (e) {
       debugPrint('[KakaoMap] 지도 동기화 오류: $e');
@@ -425,25 +510,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   /// 재중심(recenter) - 지도를 드래그해 이동한 뒤 현재 위치를 다시 중앙으로
   ///
-  /// PPT slide3 B 버튼. 출근지 마커가 있으면 현위치+출근지를 함께 보이도록 fit,
-  /// 없으면 현위치를 중앙에 둔다. 기존 카메라 이동 패턴(_syncMapIfReady) 재사용.
+  /// PPT slide3 B 버튼. '현위치 항상 중앙 고정' 정책(_moveCameraCurrentCentered)
+  /// 으로 _syncMapIfReady와 동일하게 동작한다. 출근지가 있으면 mirror-point fit으로
+  /// 현위치 정중앙 + 출근지 화면 내 포함, 없으면 현위치만 중앙에 둔다.
   Future<void> _recenterMap() async {
     final controller = _mapController;
     final currentLocation = _currentLatLng;
     if (controller == null || currentLocation == null) return;
 
     try {
-      final attendanceLatLng = _usesGpsOnMap ? _attendanceLatLng : null;
-      if (attendanceLatLng != null) {
-        await _fitMapToMarkers(controller, currentLocation, attendanceLatLng);
-      } else {
-        await controller.moveCamera(
-          CameraUpdate.newCenterPosition(
-            currentLocation,
-            zoomLevel: _defaultMapZoomLevel,
-          ),
-        );
-      }
+      // B버튼도 '현위치 중앙 고정' 동일 정책 적용
+      await _moveCameraCurrentCentered(
+        controller,
+        currentLocation,
+        _usesGpsOnMap ? _attendanceLatLng : null,
+      );
       await _updateMarkerScaleForCurrentZoom(controller);
     } catch (e) {
       debugPrint('[KakaoMap] 재중심 오류: $e');
@@ -493,6 +574,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// 마커 전용 LabelController를 1회 생성(멱등)해 반환.
+  ///
+  /// ⚠️ 실험적: CompetitionType.none 으로 기본맵 라벨 경쟁/LOD 컬링에서 제외되어
+  /// 저줌·밀집 지역(예: 공덕역)에서도 출근지/현위치 마커가 항상 렌더되는 것을 노린다.
+  /// 기본 labelLayer 도 Dart 선언상 이미 none 이지만, 여기서는 명시 파라미터로
+  /// 네이티브 레이어를 새로 생성(_createLabelLayer)한다는 점이 실질 차이다.
+  /// 실기기 검증 불가하므로 효과 없으면 Flutter 오버레이 마커 폴백으로 전환할 것.
+  Future<LabelController> _ensureMarkerLayer(
+    KakaoMapController controller,
+  ) async {
+    return _markerLayer ??= await controller.addLabelLayer(
+      'attendance_markers',
+      competitionType: CompetitionType.none,
+      zOrder: 10010,
+    );
+  }
+
   Future<void> _upsertCurrentLocationPoi(
     KakaoMapController controller,
     LatLng position,
@@ -503,7 +601,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       return;
     }
 
-    _currentLocationPoi = await controller.labelLayer.addPoi(
+    final layer = await _ensureMarkerLayer(controller);
+    _currentLocationPoi = await layer.addPoi(
       position,
       style: await _markerStyle('assets/icons/current_location.svg'),
       id: 'current_location',
@@ -522,7 +621,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       return;
     }
 
-    _destinationPoi = await controller.labelLayer.addPoi(
+    final layer = await _ensureMarkerLayer(controller);
+    _destinationPoi = await layer.addPoi(
       position,
       style: await _markerStyle('assets/icons/destination.svg'),
       id: 'destination',
@@ -542,20 +642,74 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
   }
 
-  Future<void> _fitMapToMarkers(
+  /// 현위치를 항상 화면 중앙에 고정하는 카메라 이동.
+  ///
+  /// PPT 슬라이드3 A상태. [attendanceLatLng] 가 null 이면 단순히 현위치를 중앙에
+  /// 두고, 있으면 현위치 기준 출근지의 대칭점(mirror)을 fitMapPoints에 함께 넣어
+  /// '현위치 정중앙 + 출근지(원 포함) 화면 내 포함' 두 요구를 동시에 만족시킨다.
+  Future<void> _moveCameraCurrentCentered(
     KakaoMapController controller,
     LatLng currentLocation,
-    LatLng attendanceLatLng,
+    LatLng? attendanceLatLng,
   ) async {
+    // (1) 출근지가 없으면 현위치만 중앙에 둔다
+    if (attendanceLatLng == null) {
+      await controller.moveCamera(
+        CameraUpdate.newCenterPosition(
+          currentLocation,
+          zoomLevel: _defaultMapZoomLevel,
+        ),
+      );
+      return;
+    }
+
+    // (2) 현위치 기준 출근지의 대칭점(mirror) — 현위치가 두 점의 정중앙이 됨
+    final mirror = LatLng(
+      2 * currentLocation.latitude - attendanceLatLng.latitude,
+      2 * currentLocation.longitude - attendanceLatLng.longitude,
+    );
+
+    // 엣지 케이스: 출근지와 현위치가 거의 일치 → mirror≈att → fit이 단일점이 되어
+    // 의미 없으므로 현위치 중앙 고정으로 처리(줌 클램프와 동일 결과).
+    final dLat = (mirror.latitude - attendanceLatLng.latitude).abs();
+    final dLng = (mirror.longitude - attendanceLatLng.longitude).abs();
+    if (dLat < 1e-6 && dLng < 1e-6) {
+      await controller.moveCamera(
+        CameraUpdate.newCenterPosition(
+          currentLocation,
+          zoomLevel: _defaultMapZoomLevel,
+        ),
+      );
+      return;
+    }
+
     final padding = _markerSafePadding();
     await controller.moveCamera(
       CameraUpdate.fitMapPoints(
-        [attendanceLatLng, currentLocation],
+        [attendanceLatLng, mirror],
         padding: padding,
       ),
     );
 
-    // fitMapPoints는 좌표 기준이므로 마커 이미지 외곽이 잘리지 않도록 한 번 더 검증한다.
+    // (3) 출근지가 가까우면 과확대되므로 _defaultMapZoomLevel 로 클램프
+    try {
+      final camera = await controller.getCameraPosition();
+      if (camera.zoomLevel > _defaultMapZoomLevel) {
+        await controller.moveCamera(
+          CameraUpdate.newCenterPosition(
+            currentLocation,
+            zoomLevel: _defaultMapZoomLevel,
+          ),
+        );
+        return;
+      }
+    } catch (e) {
+      debugPrint('[KakaoMap] 카메라 줌 클램프 오류: $e');
+    }
+
+    // (4) 마커 외곽이 잘리지 않도록 [출근지, 현위치]로 안전 검증.
+    //     부족하면 재시도 — 단, fit은 반드시 [출근지, mirror] 기준이어야
+    //     '현위치 중앙' 불변식이 유지된다([att, current] 로 재시도하면 중앙이 깨짐).
     final hasSafeBounds = await _markersFitInsideViewport(
       controller,
       [attendanceLatLng, currentLocation],
@@ -564,7 +718,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!hasSafeBounds) {
       await controller.moveCamera(
         CameraUpdate.fitMapPoints(
-          [attendanceLatLng, currentLocation],
+          [attendanceLatLng, mirror],
           padding: padding + 36,
         ),
       );
@@ -633,6 +787,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             accuracy: LocationAccuracy.high,
           ),
         );
+        // GPS 정확도(미터) 저장 → 현위치 원 반경 계산에 사용
+        _currentAccuracyMeters = position.accuracy;
         if (mounted) {
           setState(() {
             _currentLatLng = LatLng(position.latitude, position.longitude);

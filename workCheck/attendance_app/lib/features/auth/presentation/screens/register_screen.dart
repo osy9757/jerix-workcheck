@@ -10,6 +10,7 @@ import '../../data/datasources/local/auth_local_datasource.dart';
 import '../../../../presentation/common_widgets/app_text_field.dart';
 import '../../../../presentation/common_widgets/device_access_dialog.dart';
 import '../../../../presentation/common_widgets/secure_number_pad.dart';
+import '../../../../presentation/navigation/app_router.dart';
 
 /// 보안 키패드에서 현재 활성화된 입력 필드를 구분하는 enum
 enum _ActiveField { none, password, confirm }
@@ -134,12 +135,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     try {
       final dio = getIt<Dio>();
+      // 신규 가입: 관리자가 사전 등록한 미가입 직원 row 에 비밀번호 설정 + 활성화.
+      // name 은 인사정보에 등재된 기존 값을 쓰므로 보내지 않는다.
+      // 인사정보 불일치/이미 가입된 사번이면 400 + PPT 문구(error)가 내려와 아래 스낵바로 노출.
       await dio.post(
-        ApiConstants.users,
+        ApiConstants.register,
         data: {
           'company_code': companyCode,
           'employee_id': employeeId,
-          'name': employeeId, // MVP: 사원번호를 이름으로 사용
           'password': password,
         },
       );
@@ -222,17 +225,81 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
       // 자동 로그인 성공 → 홈으로 진입
       context.go('/');
-    } catch (e) {
-      // 자동 로그인 실패: 기존처럼 로그인 화면으로 복귀
+    } on DioException catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('회원가입이 완료되었습니다. 로그인해주세요.'),
-          backgroundColor: Color(0xFF2DDAA9),
-        ),
-      );
-      context.pop();
+      // [D4] APPROVAL 모드: 가입 직후 자동 로그인이 403(기기 미승인)이면 승인 흐름으로 전환.
+      final statusCode = e.response?.statusCode;
+      final data = e.response?.data;
+      final errorCode = data is Map ? data['errorCode'] as String? : null;
+      if (statusCode == 403 && errorCode == 'DEVICE_NOT_ALLOWED') {
+        final deviceStatus = data is Map ? data['deviceStatus'] as String? : null;
+        await _goToDeviceWaiting(
+          companyCode: companyCode,
+          employeeId: employeeId,
+          password: password,
+          deviceStatus: deviceStatus,
+        );
+        return;
+      }
+      // 그 외 Dio 오류: 가입은 완료됐으므로 로그인 안내 후 복귀
+      _showRegisterDoneAndPop();
+    } catch (e) {
+      // 자동 로그인 실패(비 Dio 예외): 기존처럼 로그인 화면으로 복귀
+      if (!mounted) return;
+      _showRegisterDoneAndPop();
     }
+  }
+
+  /// [D4] 가입 직후 403(APPROVAL 모드) → 승인 대기 흐름으로 전환.
+  ///
+  /// PENDING 이면 바로 대기화면, 그 외(NONE_MATCH/REJECTED)는 승인요청(PENDING 생성)
+  /// 후 대기화면. 대기화면 폴링/취소용 자격증명을 extra 로 전달(D11 패턴).
+  Future<void> _goToDeviceWaiting({
+    required String companyCode,
+    required String employeeId,
+    required String password,
+    required String? deviceStatus,
+  }) async {
+    final extra = {
+      'companyCode': companyCode,
+      'employeeId': employeeId,
+      'password': password,
+    };
+    // 이미 승인 대기 중이면 요청 생략하고 바로 대기화면
+    if (deviceStatus == 'PENDING') {
+      if (mounted) context.go(AppRoutes.deviceWaiting, extra: extra);
+      return;
+    }
+    // NONE_MATCH/REJECTED → 승인요청(PENDING 등록) 후 대기화면
+    try {
+      final deviceId = await getIt<DeviceIdProvider>().getDeviceId();
+      final dio = getIt<Dio>();
+      await dio.post(
+        ApiConstants.deviceRequest,
+        data: {
+          'company_code': companyCode,
+          'employee_id': employeeId,
+          'password': password,
+          'device_id': deviceId,
+        },
+      );
+      if (mounted) context.go(AppRoutes.deviceWaiting, extra: extra);
+    } catch (_) {
+      // 승인요청 실패: 기존 폴백(가입 완료 안내 + 로그인 복귀)
+      _showRegisterDoneAndPop();
+    }
+  }
+
+  /// 가입 완료 안내 스낵바 + 로그인 화면 복귀 (자동로그인/승인요청 실패 시 폴백)
+  void _showRegisterDoneAndPop() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('회원가입이 완료되었습니다. 로그인해주세요.'),
+        backgroundColor: Color(0xFF2DDAA9),
+      ),
+    );
+    context.pop();
   }
 
   @override

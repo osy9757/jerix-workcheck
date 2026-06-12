@@ -16,8 +16,20 @@ abstract class ApiConstants {
   // 인증
   static const String login = '$apiPrefix/auth/login';
 
+  // 앱 회원가입 (관리자 사전 등록된 미가입 직원에 비밀번호 설정 + 활성화)
+  static const String register = '$apiPrefix/auth/register';
+
+  // 세션 체크 (앱 시작 영속 자동로그인: JWT 검증 + 기기 바인딩 재검증 + 토큰 재발급)
+  static const String session = '$apiPrefix/auth/session';
+
   // 기기 접속 허용 요청 (기기 바인딩: 새 기기 PENDING 등록)
   static const String deviceRequest = '$apiPrefix/auth/device/request';
+
+  // 기기 상태 조회 (대기화면 5초 폴링: 회사코드+사번+기기ID로 승인 여부 확인)
+  static const String deviceStatus = '$apiPrefix/auth/device/status';
+
+  // 기기 접속 요청 취소 (대기화면 '요청취소': 비번 재검증 후 PENDING row 삭제)
+  static const String deviceCancel = '$apiPrefix/auth/device/cancel';
 
   // 출퇴근 - 2단계 호출 (v2 리팩토링)
   // init: 어떤 method 데이터를 모아야 하는지 안내

@@ -1,10 +1,13 @@
 package com.workcheck.backend.controller
 
+import com.workcheck.backend.dto.request.UpdateDeviceBindingModeRequest
 import com.workcheck.backend.dto.response.AdminDeviceResponse
 import com.workcheck.backend.dto.response.AdminHistoryResponse
+import com.workcheck.backend.dto.response.DeviceBindingModeResponse
 import com.workcheck.backend.entity.DeviceStatus
 import com.workcheck.backend.service.AttendanceService
 import com.workcheck.backend.service.DeviceAdminService
+import jakarta.validation.Valid
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
@@ -42,10 +45,22 @@ class AdminController(
         return ResponseEntity.ok(deviceAdminService.reject(id))
     }
 
-    // 기기 삭제 — row 제거 후 {"deleted":true} 반환 (MVP 비인증)
+    // 기기 삭제 — row 제거 후 {"deleted":true} 반환 (관리자 JWT 필요: AdminJwtAuthInterceptor)
     @DeleteMapping("/devices/{id}")
     fun deleteDevice(@PathVariable id: Long): ResponseEntity<Map<String, Boolean>> {
         deviceAdminService.delete(id)
         return ResponseEntity.ok(mapOf("deleted" to true))
+    }
+
+    // [D4] 기기 등록 방식 조회 (AUTO/APPROVAL) — companyCode 쿼리파라미터 (기존 camelCase 컨벤션 유지)
+    @GetMapping("/settings/device-binding")
+    fun getDeviceBindingMode(@RequestParam companyCode: String): ResponseEntity<DeviceBindingModeResponse> {
+        return ResponseEntity.ok(deviceAdminService.getBindingMode(companyCode))
+    }
+
+    // [D4] 기기 등록 방식 변경 — body {company_code, mode}
+    @PutMapping("/settings/device-binding")
+    fun updateDeviceBindingMode(@Valid @RequestBody request: UpdateDeviceBindingModeRequest): ResponseEntity<DeviceBindingModeResponse> {
+        return ResponseEntity.ok(deviceAdminService.updateBindingMode(request.companyCode, request.mode))
     }
 }

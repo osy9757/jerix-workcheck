@@ -15,8 +15,9 @@
 -- ============================================
 -- 1. 회사
 -- ============================================
-INSERT INTO companies (id, name, code) VALUES
-    (1, '테스트 회사', 'jerix');
+-- [D4] device_binding_mode 명시 (AUTO=첫 기기 자동등록 기본값)
+INSERT INTO companies (id, name, code, device_binding_mode) VALUES
+    (1, '테스트 회사', 'jerix', 'AUTO');
 
 -- ============================================
 -- 2. 직원 (앱 로그인: company_code=jerix, password=1111)
@@ -34,6 +35,12 @@ INSERT INTO users (id, company_id, employee_id, name, email, department, passwor
     (9,  1, '41', '비콘테스트1',    'beacon1@test.com',   '비콘팀',     '$2b$10$zmYHCWn.gdu3grX2tPQO9O/uaI9EFDmb1hJOp89Vu2mMoS44u2c/W'),
     (10, 1, '42', '비콘테스트2',    'beacon2@test.com',   '비콘팀',     '$2b$10$zmYHCWn.gdu3grX2tPQO9O/uaI9EFDmb1hJOp89Vu2mMoS44u2c/W'),
     (11, 1, '43', '비콘GPS테스트',  'beacongps@test.com', '비콘GPS팀',  '$2b$10$zmYHCWn.gdu3grX2tPQO9O/uaI9EFDmb1hJOp89Vu2mMoS44u2c/W');
+
+-- [D3] 신규 가입 테스트용 미가입 직원 (관리자가 인사정보만 등재 → password_hash NULL, is_active=FALSE)
+--   앱 회원가입(POST /api/v1/auth/register)으로 jerix/99 또는 jerix/98 + 비번 설정 시 가입 완료됨
+INSERT INTO users (id, company_id, employee_id, name, email, department, password_hash, is_active) VALUES
+    (12, 1, '99', '미가입직원A', NULL, '신규팀', NULL, FALSE),
+    (13, 1, '98', '미가입직원B', NULL, '신규팀', NULL, FALSE);
 
 -- ============================================
 -- 3. 관리자 (웹 로그인: password=admin1234)
@@ -145,6 +152,11 @@ INSERT INTO user_verification_methods (user_id, method_type, is_enabled, config_
     (11, 'NFC',    FALSE, '{}'),
     (11, 'BEACON', TRUE,  '{"targets": [{"uuid": "E2C56DB5-DFFB-48D2-B060-D0F5A71096E0", "major": 40011, "minor": 57342, "distance_m": 2.0, "tx_power": -59, "rssi_threshold": -77}]}'),
     (11, 'QR',     FALSE, '{}');
+
+-- [D3] 미가입 직원(12,13)도 5개 method row 자동 생성 규칙 유지 (모두 비활성)
+INSERT INTO user_verification_methods (user_id, method_type, is_enabled, config_data) VALUES
+    (12, 'GPS', FALSE, '{}'), (12, 'WIFI', FALSE, '{}'), (12, 'NFC', FALSE, '{}'), (12, 'BEACON', FALSE, '{}'), (12, 'QR', FALSE, '{}'),
+    (13, 'GPS', FALSE, '{}'), (13, 'WIFI', FALSE, '{}'), (13, 'NFC', FALSE, '{}'), (13, 'BEACON', FALSE, '{}'), (13, 'QR', FALSE, '{}');
 
 -- ============================================
 -- 5. 인증 프리셋 (관리자 웹 카탈로그)

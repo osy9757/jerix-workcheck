@@ -50,10 +50,10 @@ class _EmployeesPageState extends State<EmployeesPage> {
 
   /// 직원 등록 다이얼로그 (workplace 드롭다운 제거됨)
   void _showAddDialog() {
+    // [D3] 비밀번호 입력 제거 — 직원이 앱 회원가입에서 직접 설정(미가입 상태로 사전 등록)
     final companyCodeCtrl = TextEditingController(text: 'jerix');
     final employeeIdCtrl = TextEditingController();
     final nameCtrl = TextEditingController();
-    final passwordCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
     final departmentCtrl = TextEditingController();
 
@@ -92,15 +92,6 @@ class _EmployeesPageState extends State<EmployeesPage> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: passwordCtrl,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: '비밀번호',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
                   controller: emailCtrl,
                   decoration: const InputDecoration(
                     labelText: '이메일 (선택)',
@@ -129,7 +120,7 @@ class _EmployeesPageState extends State<EmployeesPage> {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '등록 시 백엔드가 5개 인증 method(GPS/WiFi/NFC/Beacon/QR)를 자동 생성합니다. 이후 "인증 설정"에서 켜고 편집하세요.',
+                          '비밀번호는 직원이 앱 회원가입에서 직접 설정합니다(미가입 상태로 등록). 등록 시 백엔드가 5개 인증 method(GPS/WiFi/NFC/Beacon/QR)를 자동 생성하며, 이후 "인증 설정"에서 켜고 편집하세요.',
                           style: TextStyle(
                               fontSize: 11, color: Color(0xFF1B7E62)),
                         ),
@@ -159,7 +150,6 @@ class _EmployeesPageState extends State<EmployeesPage> {
                   companyCode: companyCodeCtrl.text.trim(),
                   employeeId: employeeIdCtrl.text.trim(),
                   name: nameCtrl.text.trim(),
-                  password: passwordCtrl.text,
                   email: emailCtrl.text.trim().isEmpty
                       ? null
                       : emailCtrl.text.trim(),

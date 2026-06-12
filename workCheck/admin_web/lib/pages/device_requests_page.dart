@@ -19,11 +19,57 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
   bool _loading = true; // 로딩 상태
   String? _error; // 에러 메시지
   String _statusFilter = ''; // 상태 필터 ('' = 전체)
+  String? _bindingMode; // [D4] 기기 등록 방식 ('AUTO' | 'APPROVAL', null=로딩중/실패)
+  bool _modeUpdating = false; // [D4] 모드 변경 요청 중 여부
 
   @override
   void initState() {
     super.initState();
     _loadData();
+    _loadBindingMode(); // [D4] 기기 등록 방식 로드
+  }
+
+  /// [D4] 기기 등록 방식 로드 (AUTO/APPROVAL)
+  Future<void> _loadBindingMode() async {
+    try {
+      final mode = await widget.apiService.getDeviceBindingMode();
+      if (mounted) setState(() => _bindingMode = mode);
+    } catch (e) {
+      // 실패 시 토글 미표시 (null 유지)
+    }
+  }
+
+  /// [D4] 기기 등록 방식 변경 (성공 시 스낵바, 실패 시 이전 값 복원)
+  Future<void> _changeBindingMode(String newMode) async {
+    if (newMode == _bindingMode || _modeUpdating) return;
+    final prev = _bindingMode;
+    setState(() {
+      _bindingMode = newMode; // 낙관적 갱신
+      _modeUpdating = true;
+    });
+    try {
+      final saved = await widget.apiService.updateDeviceBindingMode(newMode);
+      if (mounted) {
+        setState(() {
+          _bindingMode = saved;
+          _modeUpdating = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('기기 등록 방식이 변경되었습니다')),
+        );
+      }
+    } catch (e) {
+      // 실패 시 이전 값 복원
+      if (mounted) {
+        setState(() {
+          _bindingMode = prev;
+          _modeUpdating = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('기기 등록 방식 변경에 실패했습니다')),
+        );
+      }
+    }
   }
 
   /// 기기 요청 목록 로드 (현재 필터 적용)
@@ -167,6 +213,69 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
     );
   }
 
+  /// [D4] 기기 등록 방식 설정 카드 (AUTO/APPROVAL SegmentedButton)
+  Widget _buildBindingModeCard() {
+    // 로딩 실패/진행 중이면 빈 자리(레이아웃 흔들림 방지 위해 최소 높이)
+    if (_bindingMode == null) {
+      return const SizedBox.shrink();
+    }
+    // 모드별 안내 문구
+    final desc = _bindingMode == 'AUTO'
+        ? '첫 기기는 자동으로 등록됩니다.'
+        : '모든 기기는 관리자 승인 후 접속 가능합니다.';
+    return Card(
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.settings, size: 18, color: Color(0xFF1B7E62)),
+                const SizedBox(width: 8),
+                const Text(
+                  '기기 등록 방식',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                ),
+                const Spacer(),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'AUTO', label: Text('자동 등록')),
+                    ButtonSegment(value: 'APPROVAL', label: Text('관리자 승인')),
+                  ],
+                  selected: {_bindingMode!},
+                  onSelectionChanged: _modeUpdating
+                      ? null
+                      : (selected) => _changeBindingMode(selected.first),
+                  style: ButtonStyle(
+                    backgroundColor: WidgetStateProperty.resolveWith((states) {
+                      if (states.contains(WidgetState.selected)) {
+                        return const Color(0xFF2DDAA9);
+                      }
+                      return null;
+                    }),
+                    foregroundColor: WidgetStateProperty.resolveWith((states) {
+                      if (states.contains(WidgetState.selected)) {
+                        return Colors.white;
+                      }
+                      return null;
+                    }),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              desc,
+              style: TextStyle(color: Colors.grey[600], fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -212,6 +321,9 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
             '직원의 새 기기 로그인 요청을 승인/거부합니다. 승인 시 기존 기기는 자동 교체됩니다.',
             style: TextStyle(color: Colors.grey[600]),
           ),
+          const SizedBox(height: 16),
+          // [D4] 기기 등록 방식 설정 (AUTO/APPROVAL 토글)
+          _buildBindingModeCard(),
           const SizedBox(height: 16),
           if (_loading)
             const Center(child: CircularProgressIndicator())

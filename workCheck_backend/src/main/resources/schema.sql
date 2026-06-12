@@ -28,6 +28,10 @@ CREATE TABLE companies (
     id         BIGSERIAL PRIMARY KEY,
     name       VARCHAR(100)  NOT NULL,
     code       VARCHAR(20)   NOT NULL UNIQUE,  -- 앱 로그인 시 사용 (예: "jerix")
+    -- [D4] 기기 등록 방식: AUTO=첫 기기 자동등록(a안) / APPROVAL=항상 관리자 승인(b안)
+    --   user_devices.status 와 동일한 VARCHAR+CHECK 패턴 (ENUM 회피, ddl-auto=validate 일치)
+    device_binding_mode VARCHAR(16) NOT NULL DEFAULT 'AUTO'
+                 CHECK (device_binding_mode IN ('AUTO','APPROVAL')),
     created_at TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
@@ -42,7 +46,8 @@ CREATE TABLE users (
     name          VARCHAR(100)  NOT NULL,
     email         VARCHAR(255),
     department    VARCHAR(100),
-    password_hash VARCHAR(255)  NOT NULL,           -- PIN 해시 (BCrypt)
+    -- NULL = 관리자가 인사정보만 등재(미가입), 값 존재 = 앱 회원가입 완료(비밀번호 설정됨)
+    password_hash VARCHAR(255),                       -- PIN 해시 (BCrypt), 미가입 시 NULL
     is_active     BOOLEAN       NOT NULL DEFAULT TRUE,
     created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
 
@@ -162,3 +167,14 @@ CREATE INDEX idx_user_devices_status_requested
 -- 인덱스: 유저별 기기 상태 조회 (로그인 상태머신)
 CREATE INDEX idx_user_devices_user_status
     ON user_devices (user_id, status);
+
+-- ============================================
+-- 운영 DB 마이그레이션 (schema.sql 은 신규 볼륨에만 적용되므로 기존 DB 는 아래 ALTER 수동 실행)
+-- ============================================
+-- [D3] 신규 가입 인사정보 사전 대조: password_hash NULL 허용 (미가입 직원 표현)
+--   ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+--
+-- [D4] 기기 자동등록(AUTO)/관리자승인(APPROVAL) 모드 전환 설정: companies 에 모드 컬럼 추가
+--   ALTER TABLE companies ADD COLUMN IF NOT EXISTS device_binding_mode VARCHAR(16) NOT NULL DEFAULT 'AUTO'
+--       CHECK (device_binding_mode IN ('AUTO','APPROVAL'));
+--   (적용 후 api 컨테이너 재시작 → ddl-auto=validate 통과 확인)

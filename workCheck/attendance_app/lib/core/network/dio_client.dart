@@ -1,9 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
+import 'package:go_router/go_router.dart';
 import 'package:injectable/injectable.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/api_constants.dart';
+// app_router 가 아닌 키 전용 파일만 import → 순환참조 회피
+import '../../presentation/navigation/root_navigator_key.dart';
 
 /// 네트워크 모듈 - Dio 인스턴스를 싱글톤으로 제공
 @module
@@ -76,9 +79,27 @@ class _AuthInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
     if (err.response?.statusCode == 401) {
-      // 401 응답 시 저장된 토큰 삭제 (로그인 화면으로의 리다이렉트는 UI에서 처리)
+      // 401 응답 시 저장된 토큰 삭제
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_tokenKey);
+
+      // 자동로그인 도입으로 만료 토큰 상태로 화면에 머무는 케이스가 늘어나므로,
+      // 현재 경로가 login/splash 가 아니면 로그인 화면으로 복귀시킨다(중복 이동 방지).
+      // GlobalKey 에서 await 이후 새로 읽은 context 라 안전 (State 캡처 컨텍스트 아님)
+      final context = rootNavigatorKey.currentContext;
+      if (context != null) {
+        try {
+          // ignore: use_build_context_synchronously
+          final router = GoRouter.of(context);
+          final location =
+              router.routerDelegate.currentConfiguration.uri.toString();
+          if (location != '/login' && location != '/splash') {
+            router.go('/login');
+          }
+        } catch (_) {
+          // 라우터 미초기화 등 예외 시 무시 (UI 측 폴백)
+        }
+      }
     }
     handler.next(err);
   }

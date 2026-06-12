@@ -30,8 +30,9 @@ class User(
     @Column(length = 100)
     var department: String? = null,
 
-    @Column(name = "password_hash", nullable = false, length = 255)
-    var passwordHash: String,
+    // NULL = 관리자 등록만 됨(미가입), 값 존재 = 앱 회원가입 완료
+    @Column(name = "password_hash", length = 255)
+    var passwordHash: String? = null,
 
     @Column(name = "is_active", nullable = false)
     var isActive: Boolean = true,

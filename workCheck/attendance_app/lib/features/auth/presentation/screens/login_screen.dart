@@ -235,7 +235,8 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   /// 403 기기 접속 불가 처리 (deviceStatus 값으로 분기)
   ///
   /// - NONE_MATCH: 등록 안 된 다른 기기 → 안내 + [담당자에게 접속 허용 요청] → 대기화면
-  /// - REJECTED: 거부된 기기 → 안내 + [접속 허용 요청] 재요청(REJECTED→PENDING) → 대기화면
+  /// - REJECTED: 거부된 기기 → PPT 취소 안내 문구 + [확인]=입력 단계 복귀(비번만 초기화).
+  ///   재요청 없음 — 거부 기기 복구는 관리자웹 기기 삭제로만 가능(의도된 정책).
   /// - PENDING: 이미 승인 대기중 → 안내 후 바로 대기화면 이동(재요청 불필요)
   /// - 누락/기타값: NONE_MATCH 경로로 폴백
   Future<void> _handleDeviceForbidden({
@@ -255,30 +256,37 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
         onButtonPressed: () {
           // 다이얼로그 닫고 대기화면으로 이동 (재요청 버튼 없음)
           Navigator.of(context).pop();
-          context.go(AppRoutes.deviceWaiting);
+          // 대기화면 폴링/취소에 쓸 자격증명을 extra로 전달 (D11)
+          context.go(
+            AppRoutes.deviceWaiting,
+            extra: {
+              'companyCode': companyCode,
+              'employeeId': employeeId,
+              'password': password,
+            },
+          );
         },
       );
       return;
     }
 
-    // 거부된 기기: 재요청 허용 (REJECTED → PENDING)
+    // 거부된 기기(D10): PPT 취소 안내 문구 + [확인] (입력 단계 복귀).
+    // ⚠️ 서버 403 message는 deviceStatus 무관 공통 문구('등록된 기기가 아닙니다...')
+    // 라 PPT 문구를 가린다. 따라서 message?? 패턴을 버리고 PPT 문구를 하드코딩한다.
+    // 재요청 보조 버튼 없음(B안) — 거부 기기 복구는 관리자웹 기기 삭제로만 가능.
     if (deviceStatus == 'REJECTED') {
       await DeviceAccessDialog.show(
         context: context,
-        title: '접속이 허용된 기기가 아닙니다',
-        content: message ??
-            '접속이 거부된 기기입니다.\n\n'
-                '아래 접속 허용 요청을 하시면\n'
-                '인사 담당자의 확인을 거쳐 접속할 수 있습니다.',
-        buttonText: '접속 허용 요청',
+        title: '접속 요청이 취소 되었습니다',
+        content: '인사부서에 문의 하시기 바랍니다.',
+        buttonText: '확인',
         onButtonPressed: () {
           Navigator.of(context).pop();
-          // fire-and-forget: 내부에서 에러는 setState 로 처리
-          unawaited(_requestDeviceAccess(
-            companyCode: companyCode,
-            employeeId: employeeId,
-            password: password,
-          ));
+          // 비밀번호만 초기화(회사코드·사번 유지) → 회사코드/사원번호 입력 단계 복귀
+          setState(() {
+            _passwordController.clear();
+            _passwordError = null;
+          });
         },
       );
       return;
@@ -334,8 +342,16 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       );
 
       // 요청 성공 → 승인 대기화면으로 이동
+      // 대기화면 폴링/취소에 쓸 자격증명을 extra로 전달 (D11)
       if (mounted) {
-        context.go(AppRoutes.deviceWaiting);
+        context.go(
+          AppRoutes.deviceWaiting,
+          extra: {
+            'companyCode': companyCode,
+            'employeeId': employeeId,
+            'password': password,
+          },
+        );
       }
     } catch (e) {
       // 요청 실패: 오류 안내

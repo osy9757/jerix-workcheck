@@ -61,6 +61,20 @@ class JwtUtil(
         }
     }
 
+    // JWT 토큰에서 role claim 추출 (admin/user) — 관리자 인터셉터의 권한 검사용
+    fun getRoleFromToken(token: String): String? {
+        return try {
+            val claims = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token)
+                .payload
+            claims["role"] as? String
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // JWT 토큰 유효성 검증
     fun validateToken(token: String): Boolean {
         return try {

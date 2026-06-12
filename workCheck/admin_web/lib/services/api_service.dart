@@ -29,6 +29,18 @@ class ApiService {
         }
         handler.next(options);
       },
+      // [BACKLOG] 401(토큰 만료/무효) 응답 시 자동 로그아웃 후 리로드
+      // - 로그인 요청 자체의 401(잘못된 자격증명)은 제외해 로그인 화면 에러 표시 유지
+      onError: (error, handler) {
+        final path = error.requestOptions.path;
+        if (error.response?.statusCode == 401 &&
+            !path.contains('/auth/admin/login')) {
+          clearToken();
+          // 리로드 시 main.dart의 isLoggedIn 분기로 로그인 페이지 진입
+          html.window.location.reload();
+        }
+        handler.next(error);
+      },
     ));
   }
 
@@ -89,11 +101,12 @@ class ApiService {
   }
 
   /// 직원 등록 (백엔드가 5 method row 자동 생성)
+  /// [D3] 관리자는 인사정보만 사전 등록(미가입 상태) — 비밀번호는 직원이 앱 회원가입에서 직접 설정.
+  /// 따라서 password 인자/바디 키 제거 (백엔드 CreateUserRequest에 password 없음).
   Future<Employee> createUser({
     required String companyCode,
     required String employeeId,
     required String name,
-    required String password,
     String? email,
     String? department,
   }) async {
@@ -101,7 +114,6 @@ class ApiService {
       'company_code': companyCode,
       'employee_id': employeeId,
       'name': name,
-      'password': password,
       if (email != null) 'email': email,
       if (department != null) 'department': department,
     });
@@ -143,9 +155,35 @@ class ApiService {
 
   /// 기기 바인딩 삭제 (DELETE /admin/devices/{id})
   /// - 모든 상태(APPROVED/PENDING/REJECTED)에서 삭제 가능
-  /// - 응답 본문 없음 (204 No Content)
+  /// - 응답: 200 + {"deleted": true} (본문은 사용하지 않음)
   Future<void> deleteDevice(int id) async {
     await _dio.delete('/admin/devices/$id');
+  }
+
+  // --- 기기 등록 방식 설정 ([D4] AUTO/APPROVAL) ---
+
+  /// 기기 등록 방식 조회 (GET /admin/settings/device-binding?companyCode=jerix)
+  /// - 응답: { company_code, mode } / 반환: mode ('AUTO' | 'APPROVAL')
+  Future<String> getDeviceBindingMode({String companyCode = 'jerix'}) async {
+    final response = await _dio.get(
+      '/admin/settings/device-binding',
+      queryParameters: {'companyCode': companyCode},
+    );
+    return response.data['mode'] as String;
+  }
+
+  /// 기기 등록 방식 변경 (PUT /admin/settings/device-binding)
+  /// - body: { company_code, mode } / 반환: 갱신된 mode
+  Future<String> updateDeviceBindingMode(String mode,
+      {String companyCode = 'jerix'}) async {
+    final response = await _dio.put(
+      '/admin/settings/device-binding',
+      data: {
+        'company_code': companyCode,
+        'mode': mode,
+      },
+    );
+    return response.data['mode'] as String;
   }
 
   // --- 유저 인증 method (5-enum) ---

@@ -1,8 +1,11 @@
 package com.workcheck.backend.service
 
 import com.workcheck.backend.dto.response.AdminDeviceResponse
+import com.workcheck.backend.dto.response.DeviceBindingModeResponse
+import com.workcheck.backend.entity.DeviceBindingMode
 import com.workcheck.backend.entity.DeviceStatus
 import com.workcheck.backend.entity.UserDevice
+import com.workcheck.backend.repository.CompanyRepository
 import com.workcheck.backend.repository.UserDeviceRepository
 import jakarta.persistence.EntityManager
 import org.springframework.stereotype.Service
@@ -15,9 +18,30 @@ import java.time.OffsetDateTime
 @Transactional
 class DeviceAdminService(
     private val userDeviceRepository: UserDeviceRepository,
+    private val companyRepository: CompanyRepository,
     private val entityManager: EntityManager
 ) {
-    // 기기 목록 조회 (status 필터 옵션). MVP: 관리자 비인증.
+    // [D4] 회사의 기기 등록 방식 조회
+    @Transactional(readOnly = true)
+    fun getBindingMode(companyCode: String): DeviceBindingModeResponse {
+        val company = companyRepository.findByCode(companyCode)
+            ?: throw IllegalArgumentException("회사 코드를 찾을 수 없습니다: $companyCode")
+        return DeviceBindingModeResponse(companyCode = company.code, mode = company.deviceBindingMode.name)
+    }
+
+    // [D4] 회사의 기기 등록 방식 변경 (AUTO/APPROVAL). 잘못된 값은 400.
+    //   비소급: APPROVAL 전환해도 기존 APPROVED 바인딩은 유지 (이 메서드는 모드만 변경)
+    fun updateBindingMode(companyCode: String, mode: String): DeviceBindingModeResponse {
+        val company = companyRepository.findByCode(companyCode)
+            ?: throw IllegalArgumentException("회사 코드를 찾을 수 없습니다: $companyCode")
+        val parsed = runCatching { DeviceBindingMode.valueOf(mode.uppercase()) }
+            .getOrElse { throw IllegalArgumentException("알 수 없는 기기 등록 방식: $mode (AUTO|APPROVAL)") }
+        company.deviceBindingMode = parsed
+        companyRepository.save(company)
+        return DeviceBindingModeResponse(companyCode = company.code, mode = parsed.name)
+    }
+
+    // 기기 목록 조회 (status 필터 옵션). 관리자 JWT 필요(AdminJwtAuthInterceptor, /admin/** 보호).
     @Transactional(readOnly = true)
     fun listDevices(status: DeviceStatus?): List<AdminDeviceResponse> {
         val devices = if (status != null) {

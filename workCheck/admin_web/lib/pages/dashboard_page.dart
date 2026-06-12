@@ -75,6 +75,23 @@ class _DashboardPageState extends State<DashboardPage> {
             unselectedIconTheme: const IconThemeData(color: Colors.white54),
             selectedLabelTextStyle: const TextStyle(color: Color(0xFF2DDAA9)),
             unselectedLabelTextStyle: const TextStyle(color: Colors.white54),
+            // [BACKLOG] 하단 로그아웃 버튼 — 토큰 삭제 후 로그인 페이지로 이동
+            trailing: Expanded(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: IconButton(
+                    icon: const Icon(Icons.logout, color: Colors.white54),
+                    tooltip: '로그아웃',
+                    onPressed: () {
+                      widget.apiService.clearToken();
+                      Navigator.pushReplacementNamed(context, '/login');
+                    },
+                  ),
+                ),
+              ),
+            ),
             destinations: const [
               NavigationRailDestination(
                 icon: Icon(Icons.tune),

@@ -12,7 +12,6 @@ import com.workcheck.backend.entity.UserVerificationMethod
 import com.workcheck.backend.repository.CompanyRepository
 import com.workcheck.backend.repository.UserRepository
 import com.workcheck.backend.repository.UserVerificationMethodRepository
-import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.OffsetDateTime
@@ -23,8 +22,7 @@ import kotlin.math.log10
 class UserService(
     private val userRepository: UserRepository,
     private val companyRepository: CompanyRepository,
-    private val uvmRepository: UserVerificationMethodRepository,
-    private val passwordEncoder: PasswordEncoder
+    private val uvmRepository: UserVerificationMethodRepository
 ) {
     // 직원 목록
     fun getUsers(companyId: Long): UserListResponse {
@@ -37,7 +35,9 @@ class UserService(
         )
     }
 
-    // 직원 등록 (v2: 등록 시 5개 method row 자동 생성, 모두 disabled)
+    // 직원 등록 ([D3] 관리자 사전 등록 = 미가입 상태: 비밀번호 미설정, 비활성)
+    // 비밀번호는 직원이 앱 회원가입(POST /auth/register)에서 직접 설정 → passwordHash NULL, isActive=FALSE
+    // 등록 시 5개 method row 자동 생성(모두 disabled) 규칙은 유지.
     @Transactional
     fun createUser(request: CreateUserRequest): UserResponse {
         val company = companyRepository.findByCode(request.companyCode)
@@ -52,7 +52,8 @@ class UserService(
             company = company,
             employeeId = request.employeeId,
             name = request.name,
-            passwordHash = passwordEncoder.encode(request.password)
+            passwordHash = null,    // 미가입: 앱 회원가입에서 설정
+            isActive = false        // 가입 완료 시 register() 에서 TRUE
         )
         val saved = userRepository.save(user)
 

@@ -11,6 +11,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:kakao_map_sdk/kakao_map_sdk.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/utils/app_logger.dart';
 import '../../../auth/data/datasources/local/auth_local_datasource.dart';
 import '../../../verification/domain/verification_method.dart';
 import '../bloc/attendance_bloc.dart';
@@ -92,9 +93,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   /// 반경 원/펄스 링을 그릴 ShapeLayer (생성 후 재사용)
   ShapeController? _radiusShapeLayer;
 
-  /// 현위치 / 출근지 마커
+  /// 현위치 마커 (출근지 위치는 파란 반경 원으로만 표시 — 핀 마커 제거됨)
   Poi? _currentLocationPoi;
-  Poi? _destinationPoi;
 
   /// 비동기 지도 갱신 충돌 방지 토큰
   int _mapSyncToken = 0;
@@ -213,6 +213,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     _attendanceLatLng = gpsTarget?.position;
     _gpsRadiusMeters = gpsTarget?.radiusMeters;
 
+    // 진단: 출근지 타겟 해석 결과(성공/실패와 그 이유)를 로그로 남긴다
+    final gpsConfig = init.getConfig(VerificationMethod.gps);
+    logD(
+      'Map',
+      'gps resolve usesGps=$usesGps cfgKeys=${gpsConfig?.keys.toList()} '
+          'target=${gpsTarget?.position} radius=${gpsTarget?.radiusMeters}',
+    );
+
     if (!_usesGpsOnMap && mounted) {
       setState(() => _attendanceAddress = '-');
     }
@@ -236,15 +244,21 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     final gpsConfig = init.getConfig(VerificationMethod.gps);
     if (gpsConfig == null) return null;
 
+    // 1) 표준 contract: gps.targets[] 리스트에서 첫 유효 타겟 추출
     final rawTargets = gpsConfig['targets'];
-    if (rawTargets is! List) return null;
-
-    for (final rawTarget in rawTargets) {
-      if (rawTarget is Map) {
-        final target = _targetFromMap(Map<String, dynamic>.from(rawTarget));
-        if (target != null) return target;
+    if (rawTargets is List) {
+      for (final rawTarget in rawTargets) {
+        if (rawTarget is Map) {
+          final target = _targetFromMap(Map<String, dynamic>.from(rawTarget));
+          if (target != null) return target;
+        }
       }
     }
+
+    // 2) 폴백: 서버가 targets 없이 flat gps config(lat/lng/radius_m)를 줄 경우 대비
+    final flat = _targetFromMap(Map<String, dynamic>.from(gpsConfig));
+    if (flat != null) return flat;
+
     return null;
   }
 
@@ -485,16 +499,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
       final attendanceLatLng = _usesGpsOnMap ? _attendanceLatLng : null;
       if (attendanceLatLng == null) {
-        // 출근지 마커/파란 반경 원만 제거(현위치 원은 유지)
-        await _removeDestinationPoi();
+        // 출근지 파란 반경 원만 제거(현위치 원은 유지).
         await _removeRadiusCircle();
         await _moveCameraCurrentCentered(controller, currentLocation, null);
         await _updateMarkerScaleForCurrentZoom(controller);
         return;
       }
-
-      await _upsertDestinationPoi(controller, attendanceLatLng);
-      if (token != _mapSyncToken) return;
 
       await _addRadiusCircle(controller);
       await _moveCameraCurrentCentered(
@@ -609,37 +619,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       // 높은 rank: 저줌/밀집 지역에서 기본맵 라벨에 밀려 컬링되지 않도록
       rank: 10000,
     );
-  }
-
-  Future<void> _upsertDestinationPoi(
-    KakaoMapController controller,
-    LatLng position,
-  ) async {
-    final existing = _destinationPoi;
-    if (existing != null) {
-      await existing.move(position);
-      return;
-    }
-
-    final layer = await _ensureMarkerLayer(controller);
-    _destinationPoi = await layer.addPoi(
-      position,
-      style: await _markerStyle('assets/icons/destination.svg'),
-      id: 'destination',
-      // 출근지 마커 최우선 rank: 공덕역 등 라벨 밀집 지역에서도 저줌에 항상 표시
-      rank: 20000,
-    );
-  }
-
-  Future<void> _removeDestinationPoi() async {
-    final poi = _destinationPoi;
-    if (poi == null) return;
-    _destinationPoi = null;
-    try {
-      await poi.remove();
-    } catch (e) {
-      debugPrint('[KakaoMap] 출근지 마커 제거 오류: $e');
-    }
   }
 
   /// 현위치를 항상 화면 중앙에 고정하는 카메라 이동.
@@ -1356,6 +1335,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                         _setupMapMarkers(controller);
                       },
                       onCameraMoveEnd: (position, gestureType) {
+                        // 줌 종료 시 마커 스케일만 갱신
                         _updateMarkerScale(position.zoomLevel);
                       },
                       onMapError: (error) {

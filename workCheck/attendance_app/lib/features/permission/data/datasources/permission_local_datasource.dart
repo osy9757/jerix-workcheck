@@ -4,6 +4,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:injectable/injectable.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../../core/utils/app_logger.dart';
 import '../../../verification/domain/verification_method.dart';
 import '../../domain/entities/permission_status_entity.dart';
 
@@ -58,7 +59,9 @@ class PermissionLocalDataSource {
       } else {
         try {
           status = await def.permission.status;
-        } catch (_) {
+        } catch (e) {
+          // 권한 상태 조회 실패 → denied 폴백 (동작 유지, 단서만 남김)
+          logW('Permission', '${def.permission} status 조회 실패: $e');
           status = PermissionStatus.denied;
         }
       }
@@ -83,7 +86,10 @@ class PermissionLocalDataSource {
       socket.send([0], InternetAddress('255.255.255.255'), 9);
       await Future.delayed(const Duration(milliseconds: 500));
       socket.close();
-    } catch (_) {}
+    } catch (e) {
+      // 로컬 네트워크 권한 트리거 실패 (동작에는 영향 없음, 단서만 남김)
+      logW('Permission', '로컬 네트워크 권한 트리거 실패: $e');
+    }
   }
 
   /// 모든 권한 일괄 요청
@@ -94,7 +100,9 @@ class PermissionLocalDataSource {
       if (def.skipCheck) continue;
       try {
         statuses[def.permission] = await def.permission.request();
-      } catch (_) {
+      } catch (e) {
+        // 권한 요청 실패 → denied 폴백 (동작 유지, 단서만 남김)
+        logW('Permission', '${def.permission} request 실패: $e');
         statuses[def.permission] = PermissionStatus.denied;
       }
     }
@@ -106,7 +114,10 @@ class PermissionLocalDataSource {
     if (Platform.isIOS) {
       try {
         await FlutterBluePlus.adapterState.first;
-      } catch (_) {}
+      } catch (e) {
+        // CoreBluetooth 초기화 실패 (동작에는 영향 없음, 단서만 남김)
+        logW('Permission', 'iOS CoreBluetooth 초기화 실패: $e');
+      }
     }
 
     final items = <PermissionItem>[];
@@ -132,7 +143,9 @@ class PermissionLocalDataSource {
       if (def.skipCheck) continue;
       try {
         if (!(await def.permission.isGranted)) return false;
-      } catch (_) {
+      } catch (e) {
+        // granted 여부 확인 실패 → 미허용으로 간주 (동작 유지, 단서만 남김)
+        logW('Permission', '${def.permission} isGranted 확인 실패: $e');
         return false;
       }
     }

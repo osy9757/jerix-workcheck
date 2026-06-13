@@ -4,6 +4,7 @@ import 'package:injectable/injectable.dart';
 
 import '../../../../core/error/failures.dart';
 import '../../../../core/usecases/usecase.dart';
+import '../../../../core/utils/app_logger.dart';
 import '../../../auth/data/datasources/local/auth_local_datasource.dart';
 import '../../../verification/data/verification_manager.dart';
 import '../../../verification/domain/verification_method.dart';
@@ -91,8 +92,8 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
         : deviceMethods;
 
     // 진단 로그: 디바이스/서버/최종 인증 방식
-    // ignore: avoid_print
-    print('[Attendance.init] saved=$savedMethodNames '
+    logD('Attendance',
+        'init saved=$savedMethodNames '
         'parsed=${savedServerMethods?.map((m) => m.name).toList()} '
         'initMethods=${_lastInit?.requiredMethods.map((m) => m.name).toList()} '
         'deviceMethods=${deviceMethods.map((m) => m.name).toList()} '
@@ -138,6 +139,11 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
       final failure = initResult.swap().getOrElse(
             () => const UnknownFailure(message: '알 수 없는 오류'),
           );
+      // 진단 로그: init 실패 사유 (민감값 없음)
+      logE('Attendance',
+          'clock init 실패 type=${type.name} '
+          'code=${failure is ServerFailure ? failure.errorCode : null} '
+          'msg=${failure.message}');
       emit(state.copyWith(
         uiState: AttendanceUiState.error,
         errorMessage: failure.message,
@@ -149,8 +155,8 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
 
     final requiredMethods = init.requiredMethods;
     // 진단 로그: 출퇴근 시점 init 결과
-    // ignore: avoid_print
-    print('[Attendance.clock] type=${type.name} '
+    logD('Attendance',
+        'clock type=${type.name} '
         'requiredMethods=${requiredMethods.map((m) => m.name).toList()} '
         'rawRequired=${init.rawRequiredMethods} '
         'configs=${init.configs.keys.toList()}');
@@ -180,6 +186,12 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
     final verificationData = <String, dynamic>{};
     for (final method in requiredMethods) {
       final result = await _verificationManager.verify(method);
+
+      // 진단 로그: 인증수단별 통과/실패 여부 (정답·원시 비밀값 제외, 사유만)
+      logD('Attendance',
+          'verify ${method.apiName} → '
+          '${result.isVerified ? "OK" : "FAIL"}'
+          '${result.isVerified ? "" : " reason=${result.errorMessage}"}');
 
       if (!result.isVerified) {
         // 로컬 인증 실패 → 기본적으로 errorCode 없음
@@ -215,12 +227,21 @@ class AttendanceBloc extends Bloc<AttendanceEvent, AttendanceState> {
     ));
 
     submitResult.fold(
-      (failure) => emit(state.copyWith(
-        uiState: AttendanceUiState.error,
-        errorMessage: failure.message,
-        errorCode: failure is ServerFailure ? failure.errorCode : null,
-      )),
+      (failure) {
+        // 진단 로그: 출퇴근 제출 실패 (사유/상태코드만)
+        logE('Attendance',
+            'submit 실패 type=${type.name} '
+            'code=${failure is ServerFailure ? failure.errorCode : null} '
+            'msg=${failure.message}');
+        emit(state.copyWith(
+          uiState: AttendanceUiState.error,
+          errorMessage: failure.message,
+          errorCode: failure is ServerFailure ? failure.errorCode : null,
+        ));
+      },
       (attendance) {
+        // 진단 로그: 출퇴근 제출 성공
+        logD('Attendance', 'submit 성공 type=${type.name}');
         // 성공 후 상태 업데이트
         final updatedStatus = type == AttendanceType.clockIn
             ? TodayStatusEntity(

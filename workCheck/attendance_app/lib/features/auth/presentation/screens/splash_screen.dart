@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/utils/app_logger.dart';
 import '../../../../core/utils/device_id_provider.dart';
 import '../../../../presentation/navigation/app_router.dart';
 import '../../data/datasources/local/auth_local_datasource.dart';
@@ -72,6 +73,8 @@ class _SplashScreenState extends State<SplashScreen> {
       // 4. 홈으로 진입
       if (mounted) context.go(AppRoutes.attendance);
     } on DioException catch (e) {
+      // 진단 로그: 세션 체크 실패 (상태코드만, 토큰 미출력)
+      logW('Auth', '세션 체크 실패 status=${e.response?.statusCode} → 로그인 폴백');
       // 401(만료/무효) → 모든 인증정보 삭제. 403(기기 차단) → 토큰만 삭제.
       // 둘 다 로그인 화면으로 폴백(로그인 시 기존 기기 바인딩 플로우 재사용).
       if (e.response?.statusCode == 401) {
@@ -80,8 +83,9 @@ class _SplashScreenState extends State<SplashScreen> {
         await _authLocal.clearToken();
       }
       _goLogin();
-    } catch (_) {
-      // 타임아웃/네트워크 오류 등 → 안전하게 로그인 화면 폴백
+    } catch (e) {
+      // 진단 로그: 타임아웃/네트워크 오류 등 (민감값 없음)
+      logW('Auth', '세션 체크 예외 → 로그인 폴백: $e');
       _goLogin();
     }
   }

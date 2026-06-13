@@ -9,6 +9,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/utils/app_logger.dart';
 import '../../../../core/utils/device_id_provider.dart';
 import '../../data/datasources/local/auth_local_datasource.dart';
 import '../../../../presentation/common_widgets/app_text_field.dart';
@@ -148,7 +149,8 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
   /// - 기타: 네트워크 오류 메시지 표시
   Future<void> _handleLogin() async {
     _clearErrors();
-    final companyCode = _companyCodeController.text;
+    // 회사코드 대소문자 무시: 소문자 정규화(DB 저장 케이스와 일치)
+    final companyCode = _companyCodeController.text.trim().toLowerCase();
     final employeeId = _employeeIdController.text;
     final password = _passwordController.text;
 
@@ -197,6 +199,9 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
       final statusCode = e.response?.statusCode;
       final message = e.response?.data?['error'] as String?;
 
+      // 진단 로그: 로그인 실패 (상태코드/메시지만, 비밀번호·토큰 미출력)
+      logW('Auth', '로그인 실패 status=$statusCode msg=$message');
+
       if (statusCode == 403) {
         // 기기 접속 불가: deviceStatus 값으로 분기 (NONE_MATCH / REJECTED / PENDING)
         final deviceStatus = e.response?.data?['deviceStatus'] as String?;
@@ -224,6 +229,8 @@ class _LoginScreenState extends State<LoginScreen> with WidgetsBindingObserver {
         });
       }
     } catch (e) {
+      // 진단 로그: 비 Dio 예외 (민감값 없음)
+      logE('Auth', '로그인 중 예외', e);
       if (mounted) {
         setState(() {
           _passwordError = '로그인 중 오류가 발생했습니다.';

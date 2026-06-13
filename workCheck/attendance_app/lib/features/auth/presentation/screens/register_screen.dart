@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/constants/api_constants.dart';
 import '../../../../core/di/injection.dart';
+import '../../../../core/utils/app_logger.dart';
 import '../../../../core/utils/device_id_provider.dart';
 import '../../data/datasources/local/auth_local_datasource.dart';
 import '../../../../presentation/common_widgets/app_text_field.dart';
@@ -129,7 +130,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isLoading = true);
 
     // 자동 로그인에 재사용할 입력값 (trim 처리)
-    final companyCode = _companyCodeController.text.trim();
+    // 회사코드 대소문자 무시: 소문자 정규화(DB 저장 케이스와 일치)
+    final companyCode = _companyCodeController.text.trim().toLowerCase();
     final employeeId = _employeeIdController.text.trim();
     final password = _passwordController.text;
 
@@ -169,6 +171,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
       final message = e.response?.data?['error'] as String?
           ?? '회원가입에 실패했습니다.';
+      // 진단 로그: 회원가입 실패 (상태코드/메시지만, 비밀번호 미출력)
+      logW('Auth', '회원가입 실패 status=${e.response?.statusCode} msg=$message');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
@@ -231,6 +235,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final statusCode = e.response?.statusCode;
       final data = e.response?.data;
       final errorCode = data is Map ? data['errorCode'] as String? : null;
+      // 진단 로그: 가입 직후 자동 로그인 실패 (상태코드/에러코드만)
+      logW('Auth', '가입 후 자동로그인 실패 status=$statusCode errorCode=$errorCode');
       if (statusCode == 403 && errorCode == 'DEVICE_NOT_ALLOWED') {
         final deviceStatus = data is Map ? data['deviceStatus'] as String? : null;
         await _goToDeviceWaiting(

@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart'; // QrPainter (QR PNG 렌더)
 import '../services/api_service.dart';
 import '../models/models.dart';
+import '../theme/admin_theme.dart'; // 디자인 토큰 (AdminColors/AdminTokens)
 import '../utils/verification_targets.dart';
 import '../widgets/gps_picker_dialog.dart';
+import '../widgets/ui_kit.dart'; // 공통 UI (PageHeader/AppCard/StatusBadge/EmptyState)
 
 /// 인증 프리셋 페이지
 /// - NFC/WiFi/GPS/Beacon 등 자주 쓰이는 인증값을 이름 붙여 저장하는 카탈로그
@@ -58,6 +60,7 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
         });
       }
     } catch (e) {
+      debugPrint('[인증프리셋] 목록 로드 실패: $e');
       if (mounted) {
         setState(() {
           _error = '프리셋을 불러올 수 없습니다';
@@ -100,10 +103,11 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
             onPressed: () => Navigator.pop(ctx, false),
             child: const Text('취소'),
           ),
-          ElevatedButton(
+          // 위험 동작은 danger 색 FilledButton
+          FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
+            style: FilledButton.styleFrom(
+              backgroundColor: AdminColors.danger,
               foregroundColor: Colors.white,
             ),
             child: const Text('삭제'),
@@ -122,6 +126,7 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
         ).showSnackBar(const SnackBar(content: Text('삭제되었습니다')));
       }
     } catch (e) {
+      debugPrint('[인증프리셋] 삭제 실패: $e');
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -182,43 +187,28 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(AdminTokens.pagePadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 헤더
-          Row(
-            children: [
-              Text(
-                '인증 프리셋',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const Spacer(),
+          // 헤더 (타이틀 + 설명 + 우측 액션)
+          PageHeader(
+            title: '인증 프리셋',
+            subtitle: '자주 쓰이는 NFC/WiFi/GPS/Beacon 값을 이름 붙여 저장하고 인증 설정 화면에서 재사용합니다.',
+            actions: [
               IconButton(
                 icon: const Icon(Icons.refresh),
                 tooltip: '새로고침',
                 onPressed: _load,
               ),
-              const SizedBox(width: 8),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.add),
+              FilledButton.icon(
+                icon: const Icon(Icons.add, size: 18),
                 label: const Text('프리셋 추가'),
                 onPressed: _showAddDialog,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2DDAA9),
-                  foregroundColor: Colors.white,
-                ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            '자주 쓰이는 NFC/WiFi/GPS/Beacon 값을 이름 붙여 저장하고 인증 설정 화면에서 재사용합니다.',
-            style: TextStyle(color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
 
           // 필터 칩
           _buildFilterChips(),
@@ -230,27 +220,17 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
           else if (_error != null)
             Expanded(
               child: Center(
-                child: Text(_error!, style: const TextStyle(color: Colors.red)),
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: AdminColors.danger),
+                ),
               ),
             )
           else if (_presets.isEmpty)
-            Expanded(
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.bookmark_border,
-                      size: 48,
-                      color: Colors.grey[400],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '프리셋이 없습니다',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                  ],
-                ),
+            const Expanded(
+              child: EmptyState(
+                icon: Icons.bookmark_border,
+                message: '프리셋이 없습니다',
               ),
             )
           else
@@ -269,8 +249,8 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
         FilterChip(
           label: const Text('전체'),
           selected: _filterMethodType == null,
-          selectedColor: const Color(0xFF2DDAA9).withOpacity(0.2),
-          checkmarkColor: const Color(0xFF2DDAA9),
+          selectedColor: AdminColors.primarySoft,
+          checkmarkColor: AdminColors.primaryDark,
           onSelected: (_) {
             setState(() => _filterMethodType = null);
             _load();
@@ -281,8 +261,8 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
           return FilterChip(
             label: Text(_displayName(mt)),
             selected: selected,
-            selectedColor: const Color(0xFF2DDAA9).withOpacity(0.2),
-            checkmarkColor: const Color(0xFF2DDAA9),
+            selectedColor: AdminColors.primarySoft,
+            checkmarkColor: AdminColors.primaryDark,
             onSelected: (_) {
               setState(() => _filterMethodType = selected ? null : mt);
               _load();
@@ -293,92 +273,91 @@ class _VerificationPresetsPageState extends State<VerificationPresetsPage> {
     );
   }
 
-  /// 프리셋 DataTable
+  /// 프리셋 DataTable (AppCard + ClipRRect로 헤더 모서리 정리, 헤더 색은 테마 의존)
   Widget _buildTable() {
-    return Card(
-      elevation: 1,
-      child: SingleChildScrollView(
-        child: SizedBox(
-          width: double.infinity,
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(
-              const Color(0xFF2DDAA9).withOpacity(0.1),
+    return AppCard(
+      padding: EdgeInsets.zero,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AdminTokens.radiusCard),
+        child: SingleChildScrollView(
+          child: SizedBox(
+            width: double.infinity,
+            child: DataTable(
+              columns: const [
+                DataColumn(label: Text('ID')),
+                DataColumn(label: Text('이름')),
+                DataColumn(label: Text('인증 수단')),
+                DataColumn(label: Text('설정값')),
+                DataColumn(label: Text('메모')),
+                DataColumn(label: Text('작업')),
+              ],
+              rows: _presets.map((p) {
+                return DataRow(
+                  // 행 호버 시 옅은 배경 강조
+                  color: WidgetStateProperty.resolveWith(
+                    (s) => s.contains(WidgetState.hovered)
+                        ? AdminColors.surfaceAlt
+                        : null,
+                  ),
+                  cells: [
+                    DataCell(Text('${p.id}')),
+                    DataCell(Text(p.name)),
+                    // 인증 수단 pill 배지
+                    DataCell(
+                      StatusBadge(
+                        label: _displayName(p.methodType),
+                        tone: BadgeTone.success,
+                      ),
+                    ),
+                    DataCell(
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 320),
+                        child: Text(
+                          _summarizeConfig(p),
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AdminColors.textSub,
+                          ),
+                        ),
+                      ),
+                    ),
+                    DataCell(
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 200),
+                        child: Text(
+                          p.memo ?? '-',
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AdminColors.textSub,
+                          ),
+                        ),
+                      ),
+                    ),
+                    DataCell(
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit, size: 18),
+                            tooltip: '수정',
+                            color: AdminColors.primaryDark,
+                            onPressed: () => _showEditDialog(p),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                            tooltip: '삭제',
+                            color: AdminColors.danger,
+                            onPressed: () => _confirmDelete(p),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              }).toList(),
             ),
-            columns: const [
-              DataColumn(label: Text('ID')),
-              DataColumn(label: Text('이름')),
-              DataColumn(label: Text('인증 수단')),
-              DataColumn(label: Text('설정값')),
-              DataColumn(label: Text('메모')),
-              DataColumn(label: Text('작업')),
-            ],
-            rows: _presets.map((p) {
-              return DataRow(
-                cells: [
-                  DataCell(Text('${p.id}')),
-                  DataCell(Text(p.name)),
-                  DataCell(
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2DDAA9).withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        _displayName(p.methodType),
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF1B7E62),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  DataCell(
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 320),
-                      child: Text(
-                        _summarizeConfig(p),
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-                      ),
-                    ),
-                  ),
-                  DataCell(
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 200),
-                      child: Text(
-                        p.memo ?? '-',
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                    ),
-                  ),
-                  DataCell(
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit, size: 18),
-                          tooltip: '수정',
-                          color: const Color(0xFF2DDAA9),
-                          onPressed: () => _showEditDialog(p),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 18),
-                          tooltip: '삭제',
-                          color: Colors.red,
-                          onPressed: () => _confirmDelete(p),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }).toList(),
           ),
         ),
       ),
@@ -698,6 +677,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
         );
       }
     } catch (e) {
+      debugPrint('[인증프리셋] 저장 실패: $e');
       if (mounted) {
         setState(() => _saving = false);
         ScaffoldMessenger.of(
@@ -725,8 +705,6 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
     }
   }
 
-  static const Color _primary = Color(0xFF2DDAA9);
-
   /// 부품 그룹 섹션 빌드 (헤더 + row 카드들 + 추가 버튼)
   Widget _buildPartSection(PartGroup group) {
     final fields = rowFieldsForPart(group.partType);
@@ -743,21 +721,22 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: _primary,
+                  color: AdminColors.primaryDark,
                 ),
               ),
               const SizedBox(width: 6),
+              // 개수 pill 배지 (연한 브랜드 배경)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: _primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+                  color: AdminColors.primarySoft,
+                  borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   '${rows.length}개',
                   style: const TextStyle(
                     fontSize: 11,
-                    color: _primary,
+                    color: AdminColors.primaryDark,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -766,12 +745,13 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
           ),
         ),
         ...List.generate(rows.length, (i) {
+          // 부품 row 카드 (미세 보더)
           return Card(
             elevation: 0,
             margin: const EdgeInsets.only(bottom: 8),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(color: Colors.grey.withOpacity(0.3)),
+              borderRadius: BorderRadius.circular(10),
+              side: const BorderSide(color: AdminColors.border),
             ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
@@ -780,40 +760,40 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                 children: [
                   Row(
                     children: [
+                      // row 순번 pill 배지
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: _primary.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(10),
+                          color: AdminColors.primarySoft,
+                          borderRadius: BorderRadius.circular(999),
                         ),
                         child: Text(
                           '#${i + 1}',
                           style: const TextStyle(
                             fontSize: 11,
-                            color: _primary,
+                            color: AdminColors.primaryDark,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
                       const Spacer(),
-                      // GPS 부품: 지도에서 좌표 픽업
+                      // GPS 부품: 지도에서 좌표 픽업 (색은 TextButton 테마 의존)
                       if (group.partType == 'GPS')
                         TextButton.icon(
                           icon: const Icon(Icons.map_outlined, size: 18),
                           label: const Text('지도에서 선택'),
                           onPressed: () => _openGpsPicker(group, i),
                           style: TextButton.styleFrom(
-                            foregroundColor: _primary,
                             visualDensity: VisualDensity.compact,
                           ),
                         ),
                       IconButton(
                         icon: const Icon(Icons.delete_outline, size: 20),
                         tooltip: rows.length == 1 ? '값 비우기' : '이 row 삭제',
-                        color: Colors.red,
+                        color: AdminColors.danger,
                         visualDensity: VisualDensity.compact,
                         onPressed: () => _removeRow(group, i),
                       ),
@@ -834,7 +814,6 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
             icon: const Icon(Icons.add, size: 18),
             label: Text('${group.label} 추가'),
             onPressed: () => _addRow(group),
-            style: TextButton.styleFrom(foregroundColor: _primary),
           ),
         ),
         const SizedBox(height: 8),
@@ -860,10 +839,10 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                   signed: true,
                 )
               : TextInputType.text,
+          // 보더/채움은 테마 inputDecorationTheme 의존
           decoration: InputDecoration(
             labelText: f.label,
             helperText: f.hint,
-            border: const OutlineInputBorder(),
             isDense: true,
           ),
         ),
@@ -894,7 +873,6 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
             decoration: const InputDecoration(
               labelText: 'WiFi SSID',
               helperText: '네트워크 이름 (항상 비교)',
-              border: OutlineInputBorder(),
               isDense: true,
             ),
           ),
@@ -905,20 +883,23 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
             children: [
               const Text(
                 '식별자: ',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AdminColors.textSub,
+                ),
               ),
               const SizedBox(width: 8),
+              // 선택 색은 chipTheme(primarySoft) 의존
               ChoiceChip(
                 label: const Text('BSSID'),
                 selected: type == 'bssid',
-                selectedColor: _primary.withValues(alpha: 0.2),
                 onSelected: (_) => setState(() => idTypes[index] = 'bssid'),
               ),
               const SizedBox(width: 6),
               ChoiceChip(
                 label: const Text('IP'),
                 selected: type == 'ip',
-                selectedColor: _primary.withValues(alpha: 0.2),
                 onSelected: (_) => setState(() => idTypes[index] = 'ip'),
               ),
             ],
@@ -929,7 +910,6 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
           decoration: InputDecoration(
             labelText: identifierLabel,
             helperText: identifierHint,
-            border: const OutlineInputBorder(),
             isDense: true,
           ),
         ),
@@ -951,21 +931,22 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: _primary,
+                  color: AdminColors.primaryDark,
                 ),
               ),
               const SizedBox(width: 6),
+              // 개수 pill 배지 (연한 브랜드 배경)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
-                  color: _primary.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+                  color: AdminColors.primarySoft,
+                  borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   '${_qrCodeCtrls.length}개',
                   style: const TextStyle(
                     fontSize: 11,
-                    color: _primary,
+                    color: AdminColors.primaryDark,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -974,31 +955,33 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
           ),
         ),
         ...List.generate(_qrCodeCtrls.length, (i) {
+          // QR row 카드 (미세 보더)
           return Card(
             elevation: 0,
             margin: const EdgeInsets.only(bottom: 8),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-              side: BorderSide(color: Colors.grey.withOpacity(0.3)),
+              borderRadius: BorderRadius.circular(10),
+              side: const BorderSide(color: AdminColors.border),
             ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
               child: Row(
                 children: [
+                  // QR 순번 pill 배지
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 8,
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: _primary.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(10),
+                      color: AdminColors.primarySoft,
+                      borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
                       '#${i + 1}',
                       style: const TextStyle(
                         fontSize: 11,
-                        color: _primary,
+                        color: AdminColors.primaryDark,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1010,7 +993,6 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                       decoration: const InputDecoration(
                         labelText: 'QR 페이로드',
                         helperText: '예: WC-GN-QR-001',
-                        border: OutlineInputBorder(),
                         isDense: true,
                       ),
                     ),
@@ -1019,7 +1001,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                   IconButton(
                     icon: const Icon(Icons.download, size: 20),
                     tooltip: 'QR 다운로드',
-                    color: _primary,
+                    color: AdminColors.primaryDark,
                     visualDensity: VisualDensity.compact,
                     onPressed: () => _downloadQrPng(
                       _qrCodeCtrls[i].text.trim(),
@@ -1029,7 +1011,7 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                   IconButton(
                     icon: const Icon(Icons.delete_outline, size: 20),
                     tooltip: _qrCodeCtrls.length == 1 ? '값 비우기' : 'QR 삭제',
-                    color: Colors.red,
+                    color: AdminColors.danger,
                     visualDensity: VisualDensity.compact,
                     onPressed: () => _removeQr(i),
                   ),
@@ -1044,7 +1026,6 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
             icon: const Icon(Icons.add, size: 18),
             label: const Text('QR 코드 추가'),
             onPressed: _addQr,
-            style: TextButton.styleFrom(foregroundColor: _primary),
           ),
         ),
         const SizedBox(height: 8),
@@ -1078,7 +1059,8 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
       html.AnchorElement(href: 'data:image/png;base64,$base64')
         ..setAttribute('download', fileName)
         ..click();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[QR] 다운로드 실패: $e');
       _showQrDownloadError('QR 다운로드에 실패했습니다.');
     }
   }
@@ -1112,13 +1094,12 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 이름
+              // 이름 (보더/채움은 테마 의존)
               TextField(
                 controller: _nameCtrl,
                 decoration: const InputDecoration(
                   labelText: '이름 *',
                   hintText: '예: 사무실 정문 NFC',
-                  border: OutlineInputBorder(),
                   isDense: true,
                 ),
               ),
@@ -1129,7 +1110,6 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                 value: _methodType,
                 decoration: const InputDecoration(
                   labelText: '인증 수단 *',
-                  border: OutlineInputBorder(),
                   isDense: true,
                 ),
                 items: _supportedTypes.map((mt) {
@@ -1142,18 +1122,32 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
               ),
               const SizedBox(height: 16),
 
-              // NFC 안내: 태그 탭 인증이므로 세기/거리 설정이 없음 (비콘 안내와 동일 스타일)
+              // NFC 안내: 태그 탭 인증이므로 세기/거리 설정이 없음 (연한 브랜드 안내 박스)
               if (_methodType == 'NFC') ...[
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.blueGrey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
+                    color: AdminColors.primarySoft,
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Text(
-                    'NFC는 태그 탭 인증으로 세기/거리 설정이 없습니다. 신호세기 기반 인증은 비콘을 사용하세요.',
-                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: AdminColors.primaryDark,
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'NFC는 태그 탭 인증으로 세기/거리 설정이 없습니다. 신호세기 기반 인증은 비콘을 사용하세요.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AdminColors.primaryDark,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -1165,12 +1159,12 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.grey.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(6),
+                    color: AdminColors.surfaceAlt,
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Text(
                     '이 인증 수단은 추가 설정값이 필요하지 않습니다.',
-                    style: TextStyle(fontSize: 12),
+                    style: TextStyle(fontSize: 12, color: AdminColors.textSub),
                   ),
                 )
               else
@@ -1181,14 +1175,13 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
 
               const SizedBox(height: 12),
 
-              // 메모
+              // 메모 (보더/채움은 테마 의존)
               TextField(
                 controller: _memoCtrl,
                 maxLines: 3,
                 decoration: const InputDecoration(
                   labelText: '메모',
                   hintText: '용도, 설치 위치 등',
-                  border: OutlineInputBorder(),
                 ),
               ),
             ],
@@ -1200,12 +1193,9 @@ class _PresetEditDialogState extends State<_PresetEditDialog> {
           onPressed: _saving ? null : () => Navigator.pop(context),
           child: const Text('취소'),
         ),
-        ElevatedButton(
+        // 확인 버튼: primary FilledButton (색은 테마 의존)
+        FilledButton(
           onPressed: _saving ? null : _save,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _primary,
-            foregroundColor: Colors.white,
-          ),
           child: _saving
               ? const SizedBox(
                   width: 16,

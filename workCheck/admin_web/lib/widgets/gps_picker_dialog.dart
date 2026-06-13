@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import '../theme/admin_theme.dart'; // 디자인 토큰 (브랜드 컬러)
 
 /// GPS 좌표 + 반경(m)을 지도에서 픽업하는 다이얼로그.
 ///
@@ -39,7 +40,7 @@ class GpsPickerDialog extends StatefulWidget {
 
 class _GpsPickerDialogState extends State<GpsPickerDialog> {
   static const LatLng _defaultCenter = LatLng(37.5665, 126.9780); // 서울시청
-  static const Color _primary = Color(0xFF2DDAA9);
+  static const Color _primary = AdminColors.primary; // 브랜드 컬러 토큰 참조
 
   late LatLng _marker;
   late int _radiusMeters;

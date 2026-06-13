@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../services/api_service.dart';
 import '../models/models.dart';
+import '../theme/admin_theme.dart'; // 디자인 토큰 (AdminColors/AdminTokens)
 import '../utils/verification_targets.dart';
 import '../widgets/gps_picker_dialog.dart';
+import '../widgets/ui_kit.dart'; // 공통 컴포넌트 (PageHeader/AppCard/StatusBadge/SectionLabel)
 
 /// 인증 설정 페이지 (api_contract v2)
 ///
@@ -55,6 +57,7 @@ class _VerificationPageState extends State<VerificationPage> {
         }
       });
     } catch (e) {
+      debugPrint('[인증설정] 직원 목록 로드 실패: $e');
       if (mounted) {
         setState(() {
           _error = '직원 목록을 불러올 수 없습니다';
@@ -72,6 +75,7 @@ class _VerificationPageState extends State<VerificationPage> {
       final methods = await widget.apiService.getUserMethods(_selectedUser!.id);
       if (mounted) setState(() => _methods = methods);
     } catch (e) {
+      debugPrint('[인증설정] 인증 방법 로드 실패: $e');
       if (mounted) setState(() => _error = '인증 방법을 불러올 수 없습니다');
     }
   }
@@ -123,6 +127,7 @@ class _VerificationPageState extends State<VerificationPage> {
       );
       await _loadMethods();
     } catch (e) {
+      debugPrint('[인증설정] $primitive 토글 변경 실패: $e');
       _showSnack('$primitive 토글 변경 실패');
     }
   }
@@ -143,6 +148,7 @@ class _VerificationPageState extends State<VerificationPage> {
       await _loadMethods();
       _showSnack('$primitive 저장 완료');
     } catch (e) {
+      debugPrint('[인증설정] $primitive 저장 실패: $e');
       _showSnack('$primitive 저장 실패');
     }
   }
@@ -209,7 +215,7 @@ class _VerificationPageState extends State<VerificationPage> {
         builder: (ctx, setDialogState) => AlertDialog(
           title: Row(
             children: [
-              const Icon(Icons.qr_code, color: Color(0xFF2DDAA9)),
+              const Icon(Icons.qr_code, color: AdminColors.primaryDark),
               const SizedBox(width: 8),
               Text('${_selectedUser?.name ?? "유저"} - QR 코드'),
             ],
@@ -222,31 +228,36 @@ class _VerificationPageState extends State<VerificationPage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (codes.isEmpty)
+                    // 등록 QR 없음 경고 박스 (warn 토큰)
                     Container(
                       padding: const EdgeInsets.all(16),
                       margin: const EdgeInsets.only(bottom: 16),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(8),
-                        border:
-                            Border.all(color: Colors.orange.withOpacity(0.3)),
+                        color: AdminColors.warn.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: AdminColors.warn.withValues(alpha: 0.35)),
                       ),
-                      child: const Text(
-                        '등록된 QR 코드가 없습니다.\n'
-                        'QR 카드를 열어 codes 를 추가하세요.',
-                        style: TextStyle(color: Colors.orange),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded,
+                              size: 18, color: AdminColors.warn),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '등록된 QR 코드가 없습니다.\n'
+                              'QR 카드를 열어 codes 를 추가하세요.',
+                              style: TextStyle(
+                                  fontSize: 13, color: AdminColors.warn),
+                            ),
+                          ),
+                        ],
                       ),
                     )
                   else ...[
                     const Padding(
-                      padding: EdgeInsets.only(top: 4, bottom: 8),
-                      child: Text(
-                        '인증용 QR',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF2DDAA9),
-                        ),
-                      ),
+                      padding: EdgeInsets.only(top: 4),
+                      child: SectionLabel('인증용 QR'),
                     ),
                     Wrap(
                       spacing: 16,
@@ -257,7 +268,7 @@ class _VerificationPageState extends State<VerificationPage> {
                             label: 'QR #${i + 1}',
                             subtitle: '스캔 → 인증 성공',
                             data: codes[i],
-                            color: const Color(0xFF2DDAA9),
+                            color: AdminColors.primary,
                             // 파일명: 유저명_QR_<번호> (코드별 개별 다운로드)
                             fileLabel:
                                 '${_selectedUser?.name ?? "user"}_QR_${i + 1}',
@@ -268,18 +279,14 @@ class _VerificationPageState extends State<VerificationPage> {
                     const Divider(height: 24),
                   ],
                   const Padding(
-                    padding: EdgeInsets.only(top: 4, bottom: 8),
-                    child: Text(
-                      '비교용 (랜덤)',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w600, color: Colors.grey),
-                    ),
+                    padding: EdgeInsets.only(top: 4),
+                    child: SectionLabel('비교용 (랜덤)'),
                   ),
                   _buildQrCard(
                     label: '테스트 (랜덤)',
                     subtitle: '스캔 → 인증 실패',
                     data: randomQr,
-                    color: Colors.grey,
+                    color: AdminColors.textSub,
                   ),
                 ],
               ),
@@ -292,12 +299,8 @@ class _VerificationPageState extends State<VerificationPage> {
               onPressed: () =>
                   setDialogState(() => randomQr = _generateRandomQr()),
             ),
-            ElevatedButton(
+            FilledButton(
               onPressed: () => Navigator.pop(ctx),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2DDAA9),
-                foregroundColor: Colors.white,
-              ),
               child: const Text('닫기'),
             ),
           ],
@@ -316,23 +319,27 @@ class _VerificationPageState extends State<VerificationPage> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // pill형 라벨 배지
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(16),
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(999),
           ),
           child: Text(label,
               style: TextStyle(
-                  fontWeight: FontWeight.w600, color: color, fontSize: 14)),
+                  fontWeight: FontWeight.w600, color: color, fontSize: 13)),
         ),
         const SizedBox(height: 4),
-        Text(subtitle, style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+        Text(subtitle,
+            style: const TextStyle(fontSize: 12, color: AdminColors.textSub)),
         const SizedBox(height: 12),
+        // QR 이미지 박스 (흰 표면 + 미세 보더)
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            border: Border.all(color: color.withOpacity(0.3)),
+            color: AdminColors.surface,
+            border: Border.all(color: color.withValues(alpha: 0.3)),
             borderRadius: BorderRadius.circular(12),
           ),
           child: QrImageView(
@@ -349,7 +356,7 @@ class _VerificationPageState extends State<VerificationPage> {
         const SizedBox(height: 8),
         SelectableText(
           data.length > 20 ? '${data.substring(0, 20)}...' : data,
-          style: TextStyle(fontSize: 10, color: Colors.grey[400]),
+          style: const TextStyle(fontSize: 11, color: AdminColors.textSub),
         ),
         // QR PNG 다운로드 버튼 (fileLabel 이 있을 때만 노출)
         if (fileLabel != null) ...[
@@ -359,7 +366,7 @@ class _VerificationPageState extends State<VerificationPage> {
             label: const Text('QR 다운로드'),
             style: OutlinedButton.styleFrom(
               foregroundColor: color,
-              side: BorderSide(color: color.withOpacity(0.5)),
+              side: BorderSide(color: color.withValues(alpha: 0.5)),
               visualDensity: VisualDensity.compact,
             ),
             onPressed: () => _downloadQrPng(data, fileLabel),
@@ -395,7 +402,8 @@ class _VerificationPageState extends State<VerificationPage> {
       html.AnchorElement(href: 'data:image/png;base64,$base64')
         ..setAttribute('download', fileName)
         ..click();
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[QR] 다운로드 실패: $e');
       _showQrDownloadError();
     }
   }
@@ -432,30 +440,23 @@ class _VerificationPageState extends State<VerificationPage> {
     }
 
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(AdminTokens.pagePadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 헤더
-          Row(
-            children: [
-              Text('인증 설정',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineMedium
-                      ?.copyWith(fontWeight: FontWeight.bold)),
-              const Spacer(),
+          // 페이지 헤더 (타이틀 + 보조 설명 + 우측 액션)
+          PageHeader(
+            title: '인증 설정',
+            subtitle: _selectedUser == null
+                ? '직원을 선택해 인증 방법을 설정하세요'
+                : '"${_selectedUser!.name}"의 5개 인증 방법을 직접 ON/OFF 및 편집합니다',
+            actions: [
               if (_selectedUser != null)
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.qr_code, size: 20),
+                FilledButton.icon(
+                  icon: const Icon(Icons.qr_code, size: 18),
                   label: const Text('QR 보기'),
                   onPressed: _showQrModal,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2DDAA9),
-                    foregroundColor: Colors.white,
-                  ),
                 ),
-              const SizedBox(width: 8),
               IconButton(
                 icon: const Icon(Icons.refresh),
                 tooltip: '새로고침',
@@ -466,14 +467,7 @@ class _VerificationPageState extends State<VerificationPage> {
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            _selectedUser == null
-                ? '직원을 선택해 인증 방법을 설정하세요'
-                : '"${_selectedUser!.name}"의 5개 인증 방법을 직접 ON/OFF 및 편집합니다',
-            style: TextStyle(color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
 
           _buildUserSelector(),
           const SizedBox(height: 16),
@@ -481,7 +475,8 @@ class _VerificationPageState extends State<VerificationPage> {
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
-              child: Text(_error!, style: const TextStyle(color: Colors.red)),
+              child: Text(_error!,
+                  style: const TextStyle(color: AdminColors.danger)),
             ),
 
           // AND 결합 안내 카드 + 5개 primitive 토글
@@ -503,36 +498,36 @@ class _VerificationPageState extends State<VerificationPage> {
     );
   }
 
-  /// 유저 단일 선택 드롭다운
+  /// 유저 단일 선택 드롭다운 (흰 카드 바)
   Widget _buildUserSelector() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2DDAA9).withOpacity(0.05),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF2DDAA9).withOpacity(0.3)),
-      ),
+    return AppCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
+          // 드롭다운 박스 (연한 채움 + 미세 보더)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: Colors.grey.withOpacity(0.3)),
+              color: AdminColors.surfaceAlt,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AdminColors.border),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.person, size: 18, color: Colors.grey[600]),
+                const Icon(Icons.person,
+                    size: 18, color: AdminColors.textSub),
                 const SizedBox(width: 6),
-                Text('대상 유저: ',
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                const Text('대상 유저: ',
+                    style:
+                        TextStyle(fontSize: 13, color: AdminColors.textSub)),
                 DropdownButtonHideUnderline(
                   child: DropdownButton<int>(
                     value: _selectedUser?.id,
                     hint: const Text('유저 선택'),
                     isDense: true,
+                    borderRadius:
+                        BorderRadius.circular(AdminTokens.radiusInput),
                     items: _users
                         .map((u) => DropdownMenuItem<int>(
                               value: u.id,
@@ -552,20 +547,10 @@ class _VerificationPageState extends State<VerificationPage> {
             ),
           ),
           const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: const Color(0xFF2DDAA9),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Text(
-              '유저 단위 5-Primitive',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+          // 모드 안내 pill 배지
+          const StatusBadge(
+            label: '유저 단위 5-Primitive',
+            tone: BadgeTone.success,
           ),
         ],
       ),
@@ -582,81 +567,68 @@ class _VerificationPageState extends State<VerificationPage> {
     Color bg;
     String message;
     if (active.isEmpty) {
-      outline = Colors.grey.withOpacity(0.3);
-      bg = Colors.grey.withOpacity(0.03);
+      outline = AdminColors.border;
+      bg = AdminColors.surface;
       message = '활성된 인증 방식이 없습니다. 아래에서 GPS/WiFi/NFC/Beacon/QR 토글을 켜세요.';
     } else if (active.length == 1) {
-      outline = const Color(0xFF2DDAA9).withOpacity(0.5);
-      bg = const Color(0xFF2DDAA9).withOpacity(0.05);
+      outline = AdminColors.primary.withValues(alpha: 0.45);
+      bg = AdminColors.primarySoft;
       message = '단일 인증입니다. 이 방식 1개만 통과하면 출퇴근이 인정됩니다.';
     } else {
-      outline = const Color(0xFF2DDAA9).withOpacity(0.6);
-      bg = const Color(0xFF2DDAA9).withOpacity(0.08);
+      outline = AdminColors.primary.withValues(alpha: 0.6);
+      bg = AdminColors.primarySoft;
       message = '선택된 방식 ${active.length}개 모두 통과해야 인증 (AND 결합)';
     }
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: outline, width: 1.5),
+    // 토큰 기반 안내 카드 (radius 14 + 상태별 보더/배경)
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(AdminTokens.radiusCard),
+        border: Border.all(color: outline, width: 1.5),
       ),
-      color: bg,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  active.isEmpty
-                      ? Icons.info_outline
-                      : (active.length >= 2
-                          ? Icons.shield
-                          : Icons.shield_outlined),
-                  size: 20,
-                  color: active.isEmpty
-                      ? Colors.grey[600]
-                      : const Color(0xFF2DDAA9),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                active.isEmpty
+                    ? Icons.info_outline
+                    : (active.length >= 2
+                        ? Icons.shield
+                        : Icons.shield_outlined),
+                size: 20,
+                color: active.isEmpty
+                    ? AdminColors.textSub
+                    : AdminColors.primaryDark,
+              ),
+              const SizedBox(width: 8),
+              const Text(
+                '현재 활성 인증 조합',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AdminColors.textMain,
                 ),
-                const SizedBox(width: 8),
-                const Text(
-                  '현재 활성 인증 조합',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: active.isEmpty
-                        ? Colors.grey.withOpacity(0.2)
-                        : const Color(0xFF2DDAA9).withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '${active.length}개 활성',
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: active.isEmpty
-                          ? Colors.grey[700]
-                          : const Color(0xFF1B7E62),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (active.isNotEmpty) _buildAndChainChips(active),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-            ),
-          ],
-        ),
+              ),
+              const SizedBox(width: 8),
+              // 활성 개수 pill 배지
+              StatusBadge(
+                label: '${active.length}개 활성',
+                tone: active.isEmpty ? BadgeTone.neutral : BadgeTone.success,
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (active.isNotEmpty) _buildAndChainChips(active),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            style: const TextStyle(fontSize: 12, color: AdminColors.textSub),
+          ),
+        ],
       ),
     );
   }
@@ -670,12 +642,13 @@ class _VerificationPageState extends State<VerificationPage> {
       final p = items[i];
       final color = _primitiveColor(p);
       widgets.add(
+        // primitive pill 칩 (구분색 유지)
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.12),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: color.withOpacity(0.5)),
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color.withValues(alpha: 0.5)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -696,14 +669,14 @@ class _VerificationPageState extends State<VerificationPage> {
       );
       if (i < items.length - 1) {
         widgets.add(
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
             child: Text(
               'AND',
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
-                color: Colors.grey[600],
+                color: AdminColors.textSub,
                 letterSpacing: 1,
               ),
             ),
@@ -746,7 +719,7 @@ class _VerificationPageState extends State<VerificationPage> {
     );
   }
 
-  /// 카드 사이 AND 구분선
+  /// 카드 사이 AND 구분선 (브랜드 토큰)
   Widget _buildAndDivider() {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -754,24 +727,25 @@ class _VerificationPageState extends State<VerificationPage> {
         children: [
           Expanded(
             child: Container(
-                height: 1, color: const Color(0xFF2DDAA9).withOpacity(0.4)),
+                height: 1,
+                color: AdminColors.primary.withValues(alpha: 0.4)),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
               decoration: BoxDecoration(
-                color: const Color(0xFF2DDAA9).withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
-                border:
-                    Border.all(color: const Color(0xFF2DDAA9).withOpacity(0.5)),
+                color: AdminColors.primarySoft,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                    color: AdminColors.primary.withValues(alpha: 0.5)),
               ),
               child: const Text(
                 'AND',
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF1B7E62),
+                  color: AdminColors.primaryDark,
                   letterSpacing: 1.5,
                 ),
               ),
@@ -779,7 +753,8 @@ class _VerificationPageState extends State<VerificationPage> {
           ),
           Expanded(
             child: Container(
-                height: 1, color: const Color(0xFF2DDAA9).withOpacity(0.4)),
+                height: 1,
+                color: AdminColors.primary.withValues(alpha: 0.4)),
           ),
         ],
       ),
@@ -795,53 +770,58 @@ class _VerificationPageState extends State<VerificationPage> {
     final method = _methodByType(primitive);
     final isActive = method?.enabled ?? false;
 
+    // 흰 카드 (radius 14 + 활성 시 구분색 보더 강조)
     return Card(
-      margin: const EdgeInsets.only(bottom: 10),
-      elevation: isExpanded ? 3 : 1,
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AdminTokens.radiusCard),
         side: BorderSide(
           color: isActive
-              ? color.withOpacity(0.5)
-              : Colors.grey.withOpacity(0.2),
-          width: isActive ? 2 : 1,
+              ? color.withValues(alpha: 0.55)
+              : AdminColors.border,
+          width: isActive ? 1.5 : 1,
         ),
       ),
       child: Column(
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(AdminTokens.radiusCard),
             onTap: () => setState(
                 () => _expandedPrimitive = isExpanded ? null : primitive),
             child: Padding(
               padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
               child: Row(
                 children: [
+                  // primitive 아이콘 박스 (구분색 유지)
                   Container(
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(9),
                     decoration: BoxDecoration(
-                      color:
-                          (isActive ? color : Colors.grey).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
+                      color: (isActive ? color : AdminColors.textSub)
+                          .withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(icon,
-                        color: isActive ? color : Colors.grey, size: 24),
+                        color: isActive ? color : AdminColors.textSub,
+                        size: 24),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(label,
                             style: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.w600)),
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: AdminColors.textMain)),
                         const SizedBox(height: 2),
                         Text(
                           isActive ? '활성' : '비활성',
                           style: TextStyle(
                             fontSize: 12,
-                            color: isActive ? color : Colors.grey,
+                            color: isActive ? color : AdminColors.textSub,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -850,7 +830,7 @@ class _VerificationPageState extends State<VerificationPage> {
                   ),
                   Icon(
                     isExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.grey,
+                    color: AdminColors.textSub,
                   ),
                   const SizedBox(width: 8),
                   Switch(
@@ -877,7 +857,7 @@ class _VerificationPageState extends State<VerificationPage> {
         padding: const EdgeInsets.all(16),
         child: Text(
           '백엔드에 $primitive method row가 없습니다.',
-          style: const TextStyle(color: Colors.red),
+          style: const TextStyle(color: AdminColors.danger),
         ),
       );
     }
@@ -1067,17 +1047,21 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Divider(),
+          const SizedBox(height: 8),
 
           // 활성 토글
           Row(
             children: [
               const Text('활성 상태:',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AdminColors.textMain)),
               const SizedBox(width: 8),
               Switch(
                 value: _localEnabled,
@@ -1088,20 +1072,26 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
               Text(_localEnabled ? 'ON' : 'OFF',
                   style: TextStyle(
                       fontSize: 12,
-                      color:
-                          _localEnabled ? widget.color : Colors.grey)),
+                      fontWeight: FontWeight.w600,
+                      color: _localEnabled
+                          ? widget.color
+                          : AdminColors.textSub)),
               const SizedBox(width: 16),
               if (widget.primitive == 'BEACON')
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.blueGrey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text(
-                    'rssi_threshold는 서버가 자동 계산 (RSSI = TxPower − 20·log10(d))',
-                    style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                // 비콘 자동 계산 안내 (연한 채움 박스)
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: AdminColors.surfaceAlt,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text(
+                      'rssi_threshold는 서버가 자동 계산 (RSSI = TxPower − 20·log10(d))',
+                      style: TextStyle(
+                          fontSize: 11, color: AdminColors.textSub),
+                    ),
                   ),
                 ),
             ],
@@ -1112,18 +1102,18 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
               padding: const EdgeInsets.only(top: 8),
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.blueGrey.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(6),
+                  color: AdminColors.surfaceAlt,
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: const Text(
                   'NFC는 태그 탭 인증으로 세기/거리 설정이 없습니다. 신호세기 기반 인증은 비콘을 사용하세요.',
-                  style: TextStyle(fontSize: 11, color: Colors.blueGrey),
+                  style: TextStyle(fontSize: 11, color: AdminColors.textSub),
                 ),
               ),
             ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
 
           // row 카드들
           for (int i = 0; i < _rows.length; i++) _buildRowCard(i),
@@ -1139,18 +1129,14 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
           ),
           const SizedBox(height: 8),
 
-          // 버튼 행
+          // 버튼 행 (저장 = primary FilledButton)
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              ElevatedButton.icon(
+              FilledButton.icon(
                 icon: const Icon(Icons.save, size: 18),
                 label: const Text('저장'),
                 onPressed: _onSave,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: widget.color,
-                  foregroundColor: Colors.white,
-                ),
               ),
             ],
           ),
@@ -1162,24 +1148,25 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
   Widget _buildRowCard(int i) {
     return Card(
       elevation: 0,
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: Colors.grey.withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(color: AdminColors.border),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 8, 12),
+        padding: const EdgeInsets.fromLTRB(14, 10, 10, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
+                // row 순번 pill (구분색 유지)
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: widget.color.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(10),
+                    color: widget.color.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text('#${i + 1}',
                       style: TextStyle(
@@ -1202,12 +1189,13 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
                 IconButton(
                   icon: const Icon(Icons.delete_outline, size: 20),
                   tooltip: _rows.length == 1 ? '값 비우기' : '이 row 삭제',
-                  color: Colors.red,
+                  color: AdminColors.danger,
                   visualDensity: VisualDensity.compact,
                   onPressed: () => _removeRow(i),
                 ),
               ],
             ),
+            const SizedBox(height: 4),
             if (widget.primitive == 'WIFI')
               _buildWifiRowFields(i)
             else
@@ -1233,10 +1221,10 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
                 ? const TextInputType.numberWithOptions(
                     decimal: true, signed: true)
                 : TextInputType.text,
+            // 보더/채움은 테마 inputDecorationTheme 의존
             decoration: InputDecoration(
               labelText: field.label,
               helperText: field.hint,
-              border: const OutlineInputBorder(),
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(
                   horizontal: 12, vertical: 10),
@@ -1259,7 +1247,7 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // SSID
+        // SSID (보더/채움은 테마 의존)
         SizedBox(
           width: 320,
           child: TextField(
@@ -1267,7 +1255,6 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
             decoration: const InputDecoration(
               labelText: 'WiFi SSID',
               helperText: '네트워크 이름 (항상 비교)',
-              border: OutlineInputBorder(),
               isDense: true,
               contentPadding:
                   EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1280,12 +1267,15 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
         Row(
           children: [
             const Text('식별자: ',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AdminColors.textMain)),
             const SizedBox(width: 8),
             ChoiceChip(
               label: const Text('BSSID'),
               selected: type == 'bssid',
-              selectedColor: widget.color.withOpacity(0.2),
+              selectedColor: widget.color.withValues(alpha: 0.18),
               onSelected: (_) =>
                   setState(() => _wifiIdTypes[i] = 'bssid'),
             ),
@@ -1293,7 +1283,7 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
             ChoiceChip(
               label: const Text('IP'),
               selected: type == 'ip',
-              selectedColor: widget.color.withOpacity(0.2),
+              selectedColor: widget.color.withValues(alpha: 0.18),
               onSelected: (_) => setState(() => _wifiIdTypes[i] = 'ip'),
             ),
             const SizedBox(width: 12),
@@ -1301,12 +1291,13 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
               type == 'ip'
                   ? 'IP 주소로 매칭 (게이트웨이/단말 IP)'
                   : 'MAC 주소로 매칭 (정확도 높음)',
-              style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+              style: const TextStyle(
+                  fontSize: 11, color: AdminColors.textSub),
             ),
           ],
         ),
         const SizedBox(height: 8),
-        // identifier_value 단일 필드
+        // identifier_value 단일 필드 (보더/채움은 테마 의존)
         SizedBox(
           width: 360,
           child: TextField(
@@ -1314,7 +1305,6 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
             decoration: InputDecoration(
               labelText: identifierLabel,
               helperText: identifierHint,
-              border: const OutlineInputBorder(),
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(
                   horizontal: 12, vertical: 10),
@@ -1398,15 +1388,19 @@ class _QrPrimitiveEditorState extends State<_QrPrimitiveEditor> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Divider(),
+          const SizedBox(height: 8),
           Row(
             children: [
               const Text('활성 상태:',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AdminColors.textMain)),
               const SizedBox(width: 8),
               Switch(
                 value: _localEnabled,
@@ -1417,32 +1411,38 @@ class _QrPrimitiveEditorState extends State<_QrPrimitiveEditor> {
               Text(_localEnabled ? 'ON' : 'OFF',
                   style: TextStyle(
                       fontSize: 12,
-                      color:
-                          _localEnabled ? widget.color : Colors.grey)),
+                      fontWeight: FontWeight.w600,
+                      color: _localEnabled
+                          ? widget.color
+                          : AdminColors.textSub)),
             ],
           ),
           const SizedBox(height: 12),
           const Text('QR 페이로드 (codes[])',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AdminColors.textMain)),
           const SizedBox(height: 8),
           for (int i = 0; i < _codeCtrls.length; i++)
             Card(
               elevation: 0,
-              margin: const EdgeInsets.only(bottom: 8),
+              margin: const EdgeInsets.only(bottom: 10),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-                side: BorderSide(color: Colors.grey.withOpacity(0.3)),
+                borderRadius: BorderRadius.circular(10),
+                side: const BorderSide(color: AdminColors.border),
               ),
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
                 child: Row(
                   children: [
+                    // QR 순번 pill (구분색 유지)
                     Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
-                        color: widget.color.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(10),
+                        color: widget.color.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text('#${i + 1}',
                           style: TextStyle(
@@ -1451,14 +1451,14 @@ class _QrPrimitiveEditorState extends State<_QrPrimitiveEditor> {
                             fontWeight: FontWeight.w700,
                           )),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: TextField(
                         controller: _codeCtrls[i],
+                        // 보더/채움은 테마 inputDecorationTheme 의존
                         decoration: const InputDecoration(
                           labelText: 'QR 페이로드',
                           helperText: '예: WC-HQ-QR-001',
-                          border: OutlineInputBorder(),
                           isDense: true,
                           contentPadding: EdgeInsets.symmetric(
                               horizontal: 12, vertical: 10),
@@ -1470,7 +1470,7 @@ class _QrPrimitiveEditorState extends State<_QrPrimitiveEditor> {
                       icon: const Icon(Icons.delete_outline, size: 20),
                       tooltip:
                           _codeCtrls.length == 1 ? '값 비우기' : 'QR 삭제',
-                      color: Colors.red,
+                      color: AdminColors.danger,
                       visualDensity: VisualDensity.compact,
                       onPressed: () => _removeCode(i),
                     ),
@@ -1488,17 +1488,14 @@ class _QrPrimitiveEditorState extends State<_QrPrimitiveEditor> {
             ),
           ),
           const SizedBox(height: 8),
+          // 버튼 행 (저장 = primary FilledButton)
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              ElevatedButton.icon(
+              FilledButton.icon(
                 icon: const Icon(Icons.save, size: 18),
                 label: const Text('저장'),
                 onPressed: _onSave,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: widget.color,
-                  foregroundColor: Colors.white,
-                ),
               ),
             ],
           ),

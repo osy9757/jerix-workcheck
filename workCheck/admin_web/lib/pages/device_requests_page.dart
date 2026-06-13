@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../models/models.dart';
+import '../theme/admin_theme.dart'; // 색/토큰
+import '../widgets/ui_kit.dart'; // 공통 UI 컴포넌트
 
 /// 기기 승인 관리 페이지 (기기 바인딩 — 계획 A ④Admin)
 /// - 기기 요청 목록 조회 + 상태 필터
@@ -35,6 +37,7 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
       final mode = await widget.apiService.getDeviceBindingMode();
       if (mounted) setState(() => _bindingMode = mode);
     } catch (e) {
+      debugPrint('[기기바인딩] 등록 방식 로드 실패: $e');
       // 실패 시 토글 미표시 (null 유지)
     }
   }
@@ -59,6 +62,7 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
         );
       }
     } catch (e) {
+      debugPrint('[기기바인딩] 등록 방식 변경 실패: $e');
       // 실패 시 이전 값 복원
       if (mounted) {
         setState(() {
@@ -89,6 +93,7 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
         });
       }
     } catch (e) {
+      debugPrint('[기기바인딩] 요청 목록 로드 실패: $e');
       if (mounted) {
         setState(() {
           _error = '기기 요청 목록을 불러올 수 없습니다';
@@ -109,6 +114,7 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
       }
       _loadData();
     } catch (e) {
+      debugPrint('[기기바인딩] 승인 실패: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('승인에 실패했습니다')),
@@ -128,6 +134,7 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
       }
       _loadData();
     } catch (e) {
+      debugPrint('[기기바인딩] 거부 실패: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('거부에 실패했습니다')),
@@ -152,7 +159,7 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: AdminColors.danger),
             child: const Text('삭제'),
           ),
         ],
@@ -169,6 +176,7 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
       }
       _loadData();
     } catch (e) {
+      debugPrint('[기기바인딩] 삭제 실패: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('삭제에 실패했습니다')),
@@ -177,40 +185,26 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
     }
   }
 
-  /// 상태 칩 (색상으로 PENDING/APPROVED/REJECTED 구분)
+  /// 상태 배지 (PENDING/APPROVED/REJECTED → pill형 StatusBadge 톤 매핑)
   Widget _statusChip(String status) {
-    Color color;
+    BadgeTone tone;
     String label;
     switch (status) {
       case 'APPROVED':
-        color = const Color(0xFF2DDAA9);
+        tone = BadgeTone.success;
         label = '승인';
         break;
       case 'REJECTED':
-        color = Colors.red;
+        tone = BadgeTone.danger;
         label = '거부';
         break;
       case 'PENDING':
       default:
-        color = Colors.orange;
+        tone = BadgeTone.warn;
         label = '대기';
         break;
     }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
+    return StatusBadge(label: label, tone: tone);
   }
 
   /// [D4] 기기 등록 방식 설정 카드 (AUTO/APPROVAL SegmentedButton)
@@ -223,55 +217,65 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
     final desc = _bindingMode == 'AUTO'
         ? '첫 기기는 자동으로 등록됩니다.'
         : '모든 기기는 관리자 승인 후 접속 가능합니다.';
-    return Card(
-      elevation: 1,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.settings, size: 18, color: Color(0xFF1B7E62)),
-                const SizedBox(width: 8),
-                const Text(
-                  '기기 등록 방식',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+    return AppCard(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.settings,
+                  size: 18, color: AdminColors.primaryDark),
+              const SizedBox(width: 8),
+              const Text(
+                '기기 등록 방식',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AdminColors.textMain,
                 ),
-                const Spacer(),
-                SegmentedButton<String>(
-                  segments: const [
-                    ButtonSegment(value: 'AUTO', label: Text('자동 등록')),
-                    ButtonSegment(value: 'APPROVAL', label: Text('관리자 승인')),
-                  ],
-                  selected: {_bindingMode!},
-                  onSelectionChanged: _modeUpdating
-                      ? null
-                      : (selected) => _changeBindingMode(selected.first),
-                  style: ButtonStyle(
-                    backgroundColor: WidgetStateProperty.resolveWith((states) {
-                      if (states.contains(WidgetState.selected)) {
-                        return const Color(0xFF2DDAA9);
-                      }
-                      return null;
-                    }),
-                    foregroundColor: WidgetStateProperty.resolveWith((states) {
-                      if (states.contains(WidgetState.selected)) {
-                        return Colors.white;
-                      }
-                      return null;
-                    }),
+              ),
+              const Spacer(),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'AUTO', label: Text('자동 등록')),
+                  ButtonSegment(value: 'APPROVAL', label: Text('관리자 승인')),
+                ],
+                selected: {_bindingMode!},
+                onSelectionChanged: _modeUpdating
+                    ? null
+                    : (selected) => _changeBindingMode(selected.first),
+                showSelectedIcon: false, // 체크 아이콘 제거 (컴팩트)
+                style: ButtonStyle(
+                  backgroundColor: WidgetStateProperty.resolveWith((states) {
+                    if (states.contains(WidgetState.selected)) {
+                      return AdminColors.primary;
+                    }
+                    return AdminColors.surface;
+                  }),
+                  foregroundColor: WidgetStateProperty.resolveWith((states) {
+                    if (states.contains(WidgetState.selected)) {
+                      return Colors.white;
+                    }
+                    return AdminColors.textSub;
+                  }),
+                  side: const WidgetStatePropertyAll(
+                    BorderSide(color: AdminColors.border),
                   ),
+                  textStyle: const WidgetStatePropertyAll(
+                    TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                  visualDensity: VisualDensity.compact,
                 ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(
-              desc,
-              style: TextStyle(color: Colors.grey[600], fontSize: 12),
-            ),
-          ],
-        ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            desc,
+            style: const TextStyle(color: AdminColors.textSub, fontSize: 12),
+          ),
+        ],
       ),
     );
   }
@@ -279,36 +283,46 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(AdminTokens.pagePadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                '기기 승인',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineMedium
-                    ?.copyWith(fontWeight: FontWeight.bold),
+          // 페이지 헤더 (타이틀 + 설명 + 상태 필터/새로고침)
+          PageHeader(
+            title: '기기 승인',
+            subtitle: '직원의 새 기기 로그인 요청을 승인/거부합니다. 승인 시 기존 기기는 자동 교체됩니다.',
+            actions: [
+              // 상태 필터 드롭다운 (흰 박스 + 보더로 정리)
+              Container(
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                decoration: BoxDecoration(
+                  color: AdminColors.surface,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AdminColors.border),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _statusFilter,
+                    borderRadius: BorderRadius.circular(10),
+                    style: const TextStyle(
+                        fontSize: 14, color: AdminColors.textMain),
+                    icon: const Icon(Icons.expand_more,
+                        size: 20, color: AdminColors.textSub),
+                    items: const [
+                      DropdownMenuItem(value: '', child: Text('전체')),
+                      DropdownMenuItem(value: 'PENDING', child: Text('대기')),
+                      DropdownMenuItem(value: 'APPROVED', child: Text('승인')),
+                      DropdownMenuItem(value: 'REJECTED', child: Text('거부')),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _statusFilter = value);
+                      _loadData();
+                    },
+                  ),
+                ),
               ),
-              const Spacer(),
-              // 상태 필터 드롭다운
-              DropdownButton<String>(
-                value: _statusFilter,
-                items: const [
-                  DropdownMenuItem(value: '', child: Text('전체')),
-                  DropdownMenuItem(value: 'PENDING', child: Text('대기')),
-                  DropdownMenuItem(value: 'APPROVED', child: Text('승인')),
-                  DropdownMenuItem(value: 'REJECTED', child: Text('거부')),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => _statusFilter = value);
-                  _loadData();
-                },
-              ),
-              const SizedBox(width: 12),
               IconButton(
                 icon: const Icon(Icons.refresh),
                 tooltip: '새로고침',
@@ -316,120 +330,133 @@ class _DeviceRequestsPageState extends State<DeviceRequestsPage> {
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            '직원의 새 기기 로그인 요청을 승인/거부합니다. 승인 시 기존 기기는 자동 교체됩니다.',
-            style: TextStyle(color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
           // [D4] 기기 등록 방식 설정 (AUTO/APPROVAL 토글)
           _buildBindingModeCard(),
           const SizedBox(height: 16),
           if (_loading)
-            const Center(child: CircularProgressIndicator())
+            const Expanded(child: Center(child: CircularProgressIndicator()))
           else if (_error != null)
-            Center(
-                child:
-                    Text(_error!, style: const TextStyle(color: Colors.red)))
+            Expanded(
+              child: Center(
+                child: Text(_error!,
+                    style: const TextStyle(color: AdminColors.danger)),
+              ),
+            )
           else if (_devices.isEmpty)
-            const Center(child: Text('기기 요청이 없습니다'))
+            const Expanded(
+              child: EmptyState(
+                icon: Icons.devices_other,
+                message: '기기 요청이 없습니다',
+              ),
+            )
           else
             Expanded(
-              child: Card(
-                elevation: 1,
-                child: SingleChildScrollView(
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: DataTable(
-                      headingRowColor: WidgetStateProperty.all(
-                        const Color(0xFF2DDAA9).withOpacity(0.1),
-                      ),
-                      columns: const [
-                        DataColumn(label: Text('사번')),
-                        DataColumn(label: Text('이름')),
-                        DataColumn(label: Text('기기 ID')),
-                        DataColumn(label: Text('상태')),
-                        DataColumn(label: Text('요청일')),
-                        DataColumn(label: Text('액션')),
-                      ],
-                      rows: _devices.map((dev) {
-                        final requested = dev.requestedAt.isEmpty
-                            ? '-'
-                            : dev.requestedAt.substring(
-                                0,
-                                dev.requestedAt.length >= 10
-                                    ? 10
-                                    : dev.requestedAt.length);
-                        final isPending = dev.status == 'PENDING';
-                        return DataRow(cells: [
-                          DataCell(Text(dev.employeeId)),
-                          DataCell(Text(dev.name)),
-                          // 기기 ID는 길어서 말줄임 + 툴팁
-                          DataCell(
-                            Tooltip(
-                              message: dev.deviceId,
-                              child: ConstrainedBox(
-                                constraints:
-                                    const BoxConstraints(maxWidth: 180),
-                                child: Text(
-                                  dev.deviceId,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+              child: AppCard(
+                padding: EdgeInsets.zero,
+                child: ClipRRect(
+                  // 헤더 모서리가 카드 radius 밖으로 새지 않게 클립
+                  borderRadius: BorderRadius.circular(AdminTokens.radiusCard),
+                  child: SingleChildScrollView(
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: DataTable(
+                        columns: const [
+                          DataColumn(label: Text('사번')),
+                          DataColumn(label: Text('이름')),
+                          DataColumn(label: Text('기기 ID')),
+                          DataColumn(label: Text('상태')),
+                          DataColumn(label: Text('요청일')),
+                          DataColumn(label: Text('액션')),
+                        ],
+                        rows: _devices.map((dev) {
+                          final requested = dev.requestedAt.isEmpty
+                              ? '-'
+                              : dev.requestedAt.substring(
+                                  0,
+                                  dev.requestedAt.length >= 10
+                                      ? 10
+                                      : dev.requestedAt.length);
+                          final isPending = dev.status == 'PENDING';
+                          return DataRow(
+                              // 행 호버 시 옅은 배경
+                              color: WidgetStateProperty.resolveWith(
+                                (states) =>
+                                    states.contains(WidgetState.hovered)
+                                        ? AdminColors.surfaceAlt
+                                        : null,
                               ),
-                            ),
-                          ),
-                          DataCell(_statusChip(dev.status)),
-                          DataCell(Text(requested)),
-                          DataCell(
-                            // PENDING 행: 승인/거부 + 삭제, 그 외: 삭제만
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // 승인/거부는 PENDING 행에서만 노출
-                                if (isPending) ...[
-                                  ElevatedButton(
-                                    onPressed: () => _approve(dev.id),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF2DDAA9),
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 12),
-                                      minimumSize: const Size(0, 36),
+                              cells: [
+                                DataCell(Text(dev.employeeId)),
+                                DataCell(Text(dev.name)),
+                                // 기기 ID는 길어서 말줄임 + 툴팁
+                                DataCell(
+                                  Tooltip(
+                                    message: dev.deviceId,
+                                    child: ConstrainedBox(
+                                      constraints:
+                                          const BoxConstraints(maxWidth: 180),
+                                      child: Text(
+                                        dev.deviceId,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                    child: const Text('승인'),
                                   ),
-                                  const SizedBox(width: 8),
-                                  OutlinedButton(
-                                    onPressed: () => _reject(dev.id),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.red,
-                                      side:
-                                          const BorderSide(color: Colors.red),
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 12),
-                                      minimumSize: const Size(0, 36),
-                                    ),
-                                    child: const Text('거부'),
-                                  ),
-                                  const SizedBox(width: 8),
-                                ],
-                                // 삭제는 모든 상태 행에서 노출 (빨강)
-                                ElevatedButton(
-                                  onPressed: () => _delete(dev.id),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.red,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 12),
-                                    minimumSize: const Size(0, 36),
-                                  ),
-                                  child: const Text('삭제'),
                                 ),
-                              ],
-                            ),
-                          ),
-                        ]);
-                      }).toList(),
+                                DataCell(_statusChip(dev.status)),
+                                DataCell(Text(requested)),
+                                DataCell(
+                                  // PENDING 행: 승인/거부 + 삭제, 그 외: 삭제만
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      // 승인/거부는 PENDING 행에서만 노출
+                                      if (isPending) ...[
+                                        // 승인: primary FilledButton
+                                        FilledButton(
+                                          onPressed: () => _approve(dev.id),
+                                          style: FilledButton.styleFrom(
+                                            padding: const EdgeInsets
+                                                .symmetric(horizontal: 12),
+                                            minimumSize: const Size(0, 36),
+                                          ),
+                                          child: const Text('승인'),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        // 거부: danger OutlinedButton
+                                        OutlinedButton(
+                                          onPressed: () => _reject(dev.id),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor:
+                                                AdminColors.danger,
+                                            side: const BorderSide(
+                                                color: AdminColors.danger),
+                                            padding: const EdgeInsets
+                                                .symmetric(horizontal: 12),
+                                            minimumSize: const Size(0, 36),
+                                          ),
+                                          child: const Text('거부'),
+                                        ),
+                                        const SizedBox(width: 8),
+                                      ],
+                                      // 삭제는 모든 상태 행에서 노출 (danger 톤)
+                                      FilledButton(
+                                        onPressed: () => _delete(dev.id),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: AdminColors.danger,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 12),
+                                          minimumSize: const Size(0, 36),
+                                        ),
+                                        child: const Text('삭제'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ]);
+                        }).toList(),
+                      ),
                     ),
                   ),
                 ),

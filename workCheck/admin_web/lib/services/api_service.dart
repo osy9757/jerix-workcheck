@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart'; // debugPrint (웹 릴리스에서 자동 no-op)
 import 'dart:html' as html;
 import '../models/models.dart';
 
@@ -20,18 +21,29 @@ class ApiService {
       headers: {'Content-Type': 'application/json'},
     ));
 
-    // JWT 토큰 인터셉터
+    // JWT 토큰 인터셉터 (+ 진단 로깅 — Authorization 토큰 값은 출력하지 않음)
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) {
         final token = getToken();
         if (token != null) {
           options.headers['Authorization'] = 'Bearer $token';
         }
+        // 요청 로깅 (메서드 + 경로만 — 토큰/바디 미출력)
+        debugPrint('[API] → ${options.method} ${options.path}');
         handler.next(options);
+      },
+      onResponse: (response, handler) {
+        // 응답 로깅 (상태코드 + 경로만 — 바디 미출력: 로그인 토큰 통째 노출 방지)
+        debugPrint(
+            '[API] ← ${response.statusCode} ${response.requestOptions.path}');
+        handler.next(response);
       },
       // [BACKLOG] 401(토큰 만료/무효) 응답 시 자동 로그아웃 후 리로드
       // - 로그인 요청 자체의 401(잘못된 자격증명)은 제외해 로그인 화면 에러 표시 유지
       onError: (error, handler) {
+        // 에러 로깅 (상태코드/경로/메시지 + 서버 에러 바디 — 디버깅에 유용)
+        debugPrint(
+            '[API] ✕ ${error.response?.statusCode} ${error.requestOptions.path} | ${error.message} | ${error.response?.data}');
         final path = error.requestOptions.path;
         if (error.response?.statusCode == 401 &&
             !path.contains('/auth/admin/login')) {

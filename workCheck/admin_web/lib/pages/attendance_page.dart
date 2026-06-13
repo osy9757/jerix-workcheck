@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../services/api_service.dart';
 import '../models/models.dart';
+import '../theme/admin_theme.dart';
+import '../widgets/ui_kit.dart';
 
 /// 출퇴근 기록 조회 페이지
 class AttendancePage extends StatefulWidget {
@@ -44,6 +46,7 @@ class _AttendancePageState extends State<AttendancePage> {
       );
       if (mounted) setState(() { _records = records; _loading = false; });
     } catch (e) {
+      debugPrint('[출퇴근] 기록 로드 실패: $e');
       if (mounted) setState(() { _error = '기록을 불러올 수 없습니다'; _loading = false; });
     }
   }
@@ -59,7 +62,7 @@ class _AttendancePageState extends State<AttendancePage> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Color(0xFF2DDAA9),
+              primary: AdminColors.primary,
             ),
           ),
           child: child!,
@@ -92,39 +95,40 @@ class _AttendancePageState extends State<AttendancePage> {
     final dateFormat = DateFormat('yyyy-MM-dd');
 
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(AdminTokens.pagePadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '출퇴근 기록',
-            style: Theme.of(context)
-                .textTheme
-                .headlineMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 16),
-
-          // 날짜 범위 선택
-          Row(
-            children: [
-              OutlinedButton.icon(
-                icon: const Icon(Icons.date_range),
-                label: Text(
-                  '${dateFormat.format(_fromDate)} ~ ${dateFormat.format(_toDate)}',
-                ),
-                onPressed: _selectDateRange,
-              ),
-              const SizedBox(width: 12),
+          // 페이지 헤더 (타이틀 + 새로고침 액션)
+          PageHeader(
+            title: '출퇴근 기록',
+            actions: [
               IconButton(
                 icon: const Icon(Icons.refresh),
                 tooltip: '새로고침',
                 onPressed: _loadRecords,
               ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // 필터 행: 날짜 범위 선택 + 총 건수
+          Row(
+            children: [
+              OutlinedButton.icon(
+                icon: const Icon(Icons.date_range, size: 18),
+                label: Text(
+                  '${dateFormat.format(_fromDate)} ~ ${dateFormat.format(_toDate)}',
+                ),
+                onPressed: _selectDateRange,
+              ),
               const Spacer(),
               Text(
                 '총 ${_records.length}건',
-                style: TextStyle(color: Colors.grey[600]),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AdminColors.textSub,
+                ),
               ),
             ],
           ),
@@ -132,41 +136,74 @@ class _AttendancePageState extends State<AttendancePage> {
 
           // 테이블
           if (_loading)
-            const Center(child: CircularProgressIndicator())
+            const Expanded(child: Center(child: CircularProgressIndicator()))
           else if (_error != null)
-            Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
+            Expanded(
+              child: Center(
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: AdminColors.danger),
+                ),
+              ),
+            )
+          else if (_records.isEmpty)
+            // 빈 목록 상태
+            const Expanded(
+              child: AppCard(
+                padding: EdgeInsets.zero,
+                child: EmptyState(
+                  icon: Icons.event_busy_outlined,
+                  message: '해당 기간의 출퇴근 기록이 없습니다',
+                ),
+              ),
+            )
           else
             Expanded(
-              child: Card(
-                elevation: 1,
-                child: SingleChildScrollView(
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: DataTable(
-                      headingRowColor: WidgetStateProperty.all(
-                        const Color(0xFF2DDAA9).withOpacity(0.1),
+              child: AppCard(
+                padding: EdgeInsets.zero,
+                child: ClipRRect(
+                  // 헤더 모서리 잘림 방지
+                  borderRadius:
+                      BorderRadius.circular(AdminTokens.radiusCard),
+                  child: SingleChildScrollView(
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: DataTable(
+                        columns: const [
+                          DataColumn(label: Text('날짜')),
+                          DataColumn(label: Text('직원명')),
+                          DataColumn(label: Text('출근 시간')),
+                          DataColumn(label: Text('퇴근 시간')),
+                          DataColumn(label: Text('출근 인증')),
+                          DataColumn(label: Text('퇴근 인증')),
+                          DataColumn(label: Text('상태')),
+                        ],
+                        rows: _records.map((record) {
+                          final status = _getStatus(record);
+                          return DataRow(
+                            // 행 호버 시 옅은 배경 강조
+                            color: WidgetStateProperty.resolveWith(
+                              (states) =>
+                                  states.contains(WidgetState.hovered)
+                                      ? AdminColors.surfaceAlt
+                                      : null,
+                            ),
+                            cells: [
+                              DataCell(Text(record.date)),
+                              DataCell(Text(record.employeeName ?? '-')),
+                              DataCell(
+                                  Text(_formatTime(record.clockIn?.timestamp))),
+                              DataCell(Text(
+                                  _formatTime(record.clockOut?.timestamp))),
+                              DataCell(Text(
+                                  record.clockIn?.verificationMethod ?? '-')),
+                              DataCell(Text(
+                                  record.clockOut?.verificationMethod ?? '-')),
+                              DataCell(_buildStatusChip(status)),
+                            ],
+                          );
+                        }).toList(),
                       ),
-                      columns: const [
-                        DataColumn(label: Text('날짜')),
-                        DataColumn(label: Text('직원명')),
-                        DataColumn(label: Text('출근 시간')),
-                        DataColumn(label: Text('퇴근 시간')),
-                        DataColumn(label: Text('출근 인증')),
-                        DataColumn(label: Text('퇴근 인증')),
-                        DataColumn(label: Text('상태')),
-                      ],
-                      rows: _records.map((record) {
-                        final status = _getStatus(record);
-                        return DataRow(cells: [
-                          DataCell(Text(record.date)),
-                          DataCell(Text(record.employeeName ?? '-')),
-                          DataCell(Text(_formatTime(record.clockIn?.timestamp))),
-                          DataCell(Text(_formatTime(record.clockOut?.timestamp))),
-                          DataCell(Text(record.clockIn?.verificationMethod ?? '-')),
-                          DataCell(Text(record.clockOut?.verificationMethod ?? '-')),
-                          DataCell(_buildStatusChip(status)),
-                        ]);
-                      }).toList(),
                     ),
                   ),
                 ),
@@ -184,29 +221,20 @@ class _AttendancePageState extends State<AttendancePage> {
     return '미출근';
   }
 
-  /// 출퇴근 상태 칩 위젯 (정상/퇴근 미등록/미출근)
+  /// 출퇴근 상태 배지 위젯 (정상/퇴근 미등록/미출근)
   Widget _buildStatusChip(String status) {
-    Color color;
+    // 상태 → 배지 톤 매핑
+    BadgeTone tone;
     switch (status) {
       case '정상':
-        color = const Color(0xFF2DDAA9);
+        tone = BadgeTone.success;
         break;
       case '퇴근 미등록':
-        color = Colors.orange;
+        tone = BadgeTone.warn;
         break;
       default:
-        color = Colors.red;
+        tone = BadgeTone.neutral;
     }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
-      ),
-    );
+    return StatusBadge(label: status, tone: tone);
   }
 }

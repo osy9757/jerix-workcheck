@@ -866,6 +866,7 @@ class _VerificationPageState extends State<VerificationPage> {
         key: ValueKey('QR-${_selectedUser?.id ?? 0}'),
         color: color,
         method: method,
+        apiService: widget.apiService, // 프리셋 불러오기용
         onSave: (enabled, config) => _savePrimitive(
           primitive: 'QR',
           enabled: enabled,
@@ -878,6 +879,7 @@ class _VerificationPageState extends State<VerificationPage> {
       primitive: primitive,
       color: color,
       method: method,
+      apiService: widget.apiService, // 프리셋 불러오기용
       onSave: (enabled, config) => _savePrimitive(
         primitive: primitive,
         enabled: enabled,
@@ -897,6 +899,7 @@ class _PrimitiveConfigEditor extends StatefulWidget {
   final String primitive; // 'GPS' | 'WIFI' | 'NFC' | 'BEACON'
   final Color color;
   final VerificationMethod method;
+  final ApiService apiService; // 프리셋 목록 조회용
   final Future<void> Function(bool enabled, Map<String, dynamic> config)
       onSave;
 
@@ -905,6 +908,7 @@ class _PrimitiveConfigEditor extends StatefulWidget {
     required this.primitive,
     required this.color,
     required this.method,
+    required this.apiService,
     required this.onSave,
   });
 
@@ -1044,6 +1048,120 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
     });
   }
 
+  // -----------------------------------------------------------------
+  // 프리셋 불러오기 (해당 primitive 타입 프리셋을 row로 append)
+  // -----------------------------------------------------------------
+
+  /// 현재 row가 "값 없는 단일 빈 row" 인지 (중복 빈 row 방지용)
+  bool _isSingleEmptyRow() {
+    if (_rows.length != 1) return false;
+    for (final c in _rows[0].values) {
+      if (c.text.trim().isNotEmpty) return false;
+    }
+    return true;
+  }
+
+  /// 프리셋 목록 조회 → 선택 다이얼로그 → append
+  Future<void> _loadPreset() async {
+    final method = widget.primitive; // 'GPS'/'WIFI'/'NFC'/'BEACON' (대문자)
+    List<VerificationPreset> presets;
+    try {
+      presets = await widget.apiService.getPresets(methodType: method);
+    } catch (e) {
+      debugPrint('[인증설정] 프리셋 로드 실패: $e');
+      _snack('프리셋을 불러오지 못했습니다');
+      return;
+    }
+    if (!mounted) return;
+    if (presets.isEmpty) {
+      _snack('등록된 $method 프리셋이 없습니다');
+      return;
+    }
+    final selected = await _showPresetDialog(presets);
+    if (selected == null || !mounted) return;
+    _applyPreset(selected);
+  }
+
+  /// 프리셋 선택 다이얼로그 (이름 + memo 리스트)
+  Future<VerificationPreset?> _showPresetDialog(
+      List<VerificationPreset> presets) {
+    return showDialog<VerificationPreset>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.bookmark_outline, color: widget.color),
+            const SizedBox(width: 8),
+            Text('${partDisplayNameOf(widget.primitive)} 프리셋 불러오기'),
+          ],
+        ),
+        content: SizedBox(
+          width: 420,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: presets.length,
+            separatorBuilder: (_, i) => const Divider(height: 1),
+            itemBuilder: (_, i) {
+              final p = presets[i];
+              return ListTile(
+                leading: Icon(Icons.bookmark, size: 20, color: widget.color),
+                title: Text(p.name,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: (p.memo != null && p.memo!.trim().isNotEmpty)
+                    ? Text(p.memo!,
+                        style: const TextStyle(
+                            fontSize: 12, color: AdminColors.textSub))
+                    : null,
+                onTap: () => Navigator.pop(ctx, p), // 선택 → 닫기
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('닫기'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 선택한 프리셋의 targets 를 기존 row 뒤에 append (덮어쓰기 X)
+  void _applyPreset(VerificationPreset preset) {
+    final targetsRaw = preset.configData['targets'];
+    if (targetsRaw is! List || targetsRaw.isEmpty) {
+      _snack("프리셋 '${preset.name}'에 적용할 설정이 없습니다");
+      return;
+    }
+    setState(() {
+      // 현재가 단일 빈 row 면 제거 후 추가 (중복 빈 row 방지)
+      if (_isSingleEmptyRow()) {
+        for (final c in _rows[0].values) {
+          c.dispose();
+        }
+        _rows.clear();
+        if (widget.primitive == 'WIFI') _wifiIdTypes.clear();
+      }
+      for (final t in targetsRaw) {
+        if (t is Map) {
+          // _addInitialRow 가 WIFI identifier_type 등도 처리
+          _addInitialRow(Map<String, dynamic>.from(t));
+        }
+      }
+    });
+    _snack("프리셋 '${preset.name}' 적용됨");
+  }
+
+  /// 스낵바 안내 (부모와 동일 스타일)
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -1118,14 +1236,23 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
           // row 카드들
           for (int i = 0; i < _rows.length; i++) _buildRowCard(i),
 
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              icon: const Icon(Icons.add, size: 18),
-              label: Text('${partDisplayNameOf(widget.primitive)} 추가'),
-              onPressed: _addRow,
-              style: TextButton.styleFrom(foregroundColor: widget.color),
-            ),
+          // 추가 + 프리셋 불러오기 버튼 행
+          Row(
+            children: [
+              TextButton.icon(
+                icon: const Icon(Icons.add, size: 18),
+                label: Text('${partDisplayNameOf(widget.primitive)} 추가'),
+                onPressed: _addRow,
+                style: TextButton.styleFrom(foregroundColor: widget.color),
+              ),
+              const SizedBox(width: 4),
+              TextButton.icon(
+                icon: const Icon(Icons.bookmark_outline, size: 18),
+                label: const Text('프리셋 불러오기'),
+                onPressed: _loadPreset,
+                style: TextButton.styleFrom(foregroundColor: widget.color),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
 
@@ -1325,6 +1452,7 @@ class _PrimitiveConfigEditorState extends State<_PrimitiveConfigEditor> {
 class _QrPrimitiveEditor extends StatefulWidget {
   final Color color;
   final VerificationMethod method;
+  final ApiService apiService; // 프리셋 목록 조회용
   final Future<void> Function(bool enabled, Map<String, dynamic> config)
       onSave;
 
@@ -1332,6 +1460,7 @@ class _QrPrimitiveEditor extends StatefulWidget {
     super.key,
     required this.color,
     required this.method,
+    required this.apiService,
     required this.onSave,
   });
 
@@ -1383,6 +1512,120 @@ class _QrPrimitiveEditorState extends State<_QrPrimitiveEditor> {
         .where((s) => s.isNotEmpty)
         .toList();
     await widget.onSave(_localEnabled, {'codes': codes});
+  }
+
+  // -----------------------------------------------------------------
+  // 프리셋 불러오기 (QR 프리셋의 codes 를 append)
+  // -----------------------------------------------------------------
+
+  /// 현재가 "값 없는 단일 빈 code" 인지 (중복 빈 입력 방지용)
+  bool _isSingleEmptyCode() =>
+      _codeCtrls.length == 1 && _codeCtrls[0].text.trim().isEmpty;
+
+  /// 현재 입력된 code 집합 (중복 추가 방지용)
+  Set<String> _existingCodes() => _codeCtrls
+      .map((c) => c.text.trim())
+      .where((s) => s.isNotEmpty)
+      .toSet();
+
+  /// 프리셋 목록 조회 → 선택 다이얼로그 → append
+  Future<void> _loadPreset() async {
+    List<VerificationPreset> presets;
+    try {
+      presets = await widget.apiService.getPresets(methodType: 'QR');
+    } catch (e) {
+      debugPrint('[인증설정] 프리셋 로드 실패: $e');
+      _snack('프리셋을 불러오지 못했습니다');
+      return;
+    }
+    if (!mounted) return;
+    if (presets.isEmpty) {
+      _snack('등록된 QR 프리셋이 없습니다');
+      return;
+    }
+    final selected = await _showPresetDialog(presets);
+    if (selected == null || !mounted) return;
+    _applyPreset(selected);
+  }
+
+  /// 프리셋 선택 다이얼로그 (이름 + memo 리스트)
+  Future<VerificationPreset?> _showPresetDialog(
+      List<VerificationPreset> presets) {
+    return showDialog<VerificationPreset>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.bookmark_outline, color: widget.color),
+            const SizedBox(width: 8),
+            const Text('QR 프리셋 불러오기'),
+          ],
+        ),
+        content: SizedBox(
+          width: 420,
+          child: ListView.separated(
+            shrinkWrap: true,
+            itemCount: presets.length,
+            separatorBuilder: (_, i) => const Divider(height: 1),
+            itemBuilder: (_, i) {
+              final p = presets[i];
+              return ListTile(
+                leading: Icon(Icons.bookmark, size: 20, color: widget.color),
+                title: Text(p.name,
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.w600)),
+                subtitle: (p.memo != null && p.memo!.trim().isNotEmpty)
+                    ? Text(p.memo!,
+                        style: const TextStyle(
+                            fontSize: 12, color: AdminColors.textSub))
+                    : null,
+                onTap: () => Navigator.pop(ctx, p), // 선택 → 닫기
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('닫기'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 선택한 프리셋의 codes 를 기존 입력 뒤에 append (덮어쓰기 X)
+  void _applyPreset(VerificationPreset preset) {
+    final codesRaw = preset.configData['codes'];
+    if (codesRaw is! List || codesRaw.isEmpty) {
+      _snack("프리셋 '${preset.name}'에 적용할 QR 코드가 없습니다");
+      return;
+    }
+    setState(() {
+      // 현재가 단일 빈 code 면 제거 후 추가 (중복 빈 입력 방지)
+      if (_isSingleEmptyCode()) {
+        _codeCtrls[0].dispose();
+        _codeCtrls.clear();
+      }
+      final exists = _existingCodes();
+      for (final c in codesRaw) {
+        final code = c.toString().trim();
+        if (code.isEmpty || exists.contains(code)) continue; // 빈/중복 스킵
+        _codeCtrls.add(TextEditingController(text: code));
+        exists.add(code);
+      }
+      // 모두 스킵돼 비어버린 경우 빈 입력 1개 유지
+      if (_codeCtrls.isEmpty) _codeCtrls.add(TextEditingController());
+    });
+    _snack("프리셋 '${preset.name}' 적용됨");
+  }
+
+  /// 스낵바 안내 (부모와 동일 스타일)
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 2)),
+    );
   }
 
   @override
@@ -1478,14 +1721,23 @@ class _QrPrimitiveEditorState extends State<_QrPrimitiveEditor> {
                 ),
               ),
             ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('QR 코드 추가'),
-              onPressed: _addCode,
-              style: TextButton.styleFrom(foregroundColor: widget.color),
-            ),
+          // 추가 + 프리셋 불러오기 버튼 행
+          Row(
+            children: [
+              TextButton.icon(
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('QR 코드 추가'),
+                onPressed: _addCode,
+                style: TextButton.styleFrom(foregroundColor: widget.color),
+              ),
+              const SizedBox(width: 4),
+              TextButton.icon(
+                icon: const Icon(Icons.bookmark_outline, size: 18),
+                label: const Text('프리셋 불러오기'),
+                onPressed: _loadPreset,
+                style: TextButton.styleFrom(foregroundColor: widget.color),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           // 버튼 행 (저장 = primary FilledButton)
